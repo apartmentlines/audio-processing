@@ -52,7 +52,7 @@ function get_audio_files() {
   echo "All files processed. Total successful transcriptions: ${succeeded} out of ${processed} processed, ${total_files} total."
   
   # Return the number of succeeded transcriptions
-  echo "${succeeded}"
+  return ${succeeded}
 }
 
 function calculate_time_stats() {
@@ -78,7 +78,8 @@ function calculate_time_stats() {
 start_time=$(date +%s)
 
 # Run the main function and capture the number of succeeded transcriptions
-succeeded=$(get_audio_files)
+get_audio_files
+succeeded=$?
 
 # Capture end time
 end_time=$(date +%s)
