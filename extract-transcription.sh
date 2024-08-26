@@ -71,7 +71,7 @@ function calculate_time_stats() {
   fi
 
   echo "Total time: ${hours}h ${minutes}m ${seconds}s"
-  echo "Average time per transcription: ${avg_seconds_per_transcription} seconds"
+  echo "Average time per transcription: ${avg_seconds_per_transcription}.${remainder} seconds"
 }
 
 # Capture start time
