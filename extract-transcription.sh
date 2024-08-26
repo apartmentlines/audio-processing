@@ -39,7 +39,7 @@ function get_audio_files() {
       srt_file="${base_name}.srt"
       transcription_dir="transcriptions/${subfolder}"
       mkdir -p "${transcription_dir}"
-      mv -v "${srt_file}" "${transcription_dir}/"
+      mv "${srt_file}" "${transcription_dir}/"
       ((succeeded++))
       echo "Transcription successful. Moved ${srt_file} to ${transcription_dir}/"
     else
