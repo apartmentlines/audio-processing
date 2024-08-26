@@ -65,7 +65,9 @@ function calculate_time_stats() {
 
   local avg_seconds_per_transcription=0
   if [ ${SUCCEEDED} -gt 0 ]; then
-    avg_seconds_per_transcription=$(echo "scale=2; ${total_seconds} / ${SUCCEEDED}" | bc)
+    avg_seconds_per_transcription=$((total_seconds / SUCCEEDED))
+    local remainder=$((total_seconds % SUCCEEDED))
+    remainder=$((remainder * 100 / SUCCEEDED))
   fi
 
   echo "Total time: ${hours}h ${minutes}m ${seconds}s"
