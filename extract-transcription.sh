@@ -4,6 +4,9 @@
 # docker run --gpus all -it --entrypoint /bin/bash  -v "$(pwd):/app"   custom-whisperx
 # DON'T FORGET: export HUGGINGFACEHUB_API_TOKEN=hf_...
 
+PROCESSED=0
+SUCCEEDED=0
+
 function transcribe() {
   local input_file="${1}"
   echo "Transcribing: ${input_file}"
@@ -20,15 +23,14 @@ function transcribe() {
 
 function get_audio_files() {
   local audio_dir="audio"
-  local total_files=$(find "${audio_dir}" -type f -name "*.wav" | wc -l)
-  local processed=0
-  local succeeded=0
+  local files_list="$(find "${audio_dir}" -type f -name "*.wav")"
+  local total_files=$(echo "${files_list}" | wc -l)
 
   echo "Found ${total_files} .wav files to process."
 
-  find "${audio_dir}" -type f -name "*.wav" | while read -r audio_file; do
-    ((processed++))
-    echo "Processing file ${processed}/${total_files}: ${audio_file}"
+  for audio_file in ${files_list}; do
+    ((PROCESSED++))
+    echo "Processing file ${PROCESSED}/${total_files}: ${audio_file}"
 
     subfolder=$(echo "${audio_file}" | cut -d'/' -f2)
     base_name=$(basename "${audio_file}" .wav)
@@ -40,24 +42,21 @@ function get_audio_files() {
       transcription_dir="transcriptions/${subfolder}"
       mkdir -p "${transcription_dir}"
       mv "${srt_file}" "${transcription_dir}/"
-      ((succeeded++))
+      ((SUCCEEDED++))
       echo "Transcription successful. Moved ${srt_file} to ${transcription_dir}/"
     else
       echo "Transcription failed for ${audio_file}"
     fi
 
-    echo "Completed ${processed}/${total_files} files."
+    echo "Completed ${PROCESSED}/${total_files} files."
   done
 
-  echo "All files processed. Total successful transcriptions: ${succeeded} out of ${processed} processed, ${total_files} total."
-  
-  return ${succeeded}
+  echo "All files processed. Total successful transcriptions: ${SUCCEEDED} out of ${PROCESSED} processed, ${total_files} total."
 }
 
 function calculate_time_stats() {
   local start_time=$1
   local end_time=$2
-  local succeeded=$3
 
   local total_seconds=$((end_time - start_time))
   local hours=$((total_seconds / 3600))
@@ -65,8 +64,8 @@ function calculate_time_stats() {
   local seconds=$((total_seconds % 60))
 
   local avg_seconds_per_transcription=0
-  if [ ${succeeded} -gt 0 ]; then
-    avg_seconds_per_transcription=$(echo "scale=2; ${total_seconds} / ${succeeded}" | bc)
+  if [ ${SUCCEEDED} -gt 0 ]; then
+    avg_seconds_per_transcription=$(echo "scale=2; ${total_seconds} / ${SUCCEEDED}" | bc)
   fi
 
   echo "Total time: ${hours}h ${minutes}m ${seconds}s"
@@ -76,12 +75,10 @@ function calculate_time_stats() {
 # Capture start time
 start_time=$(date +%s)
 
-# Run the main function and capture the number of succeeded transcriptions
 get_audio_files
-succeeded=$?
 
 # Capture end time
 end_time=$(date +%s)
 
 # Calculate and display time stats
-calculate_time_stats "${start_time}" "${end_time}" "${succeeded}"
+calculate_time_stats "${start_time}" "${end_time}"
