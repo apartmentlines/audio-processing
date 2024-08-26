@@ -50,6 +50,38 @@ function get_audio_files() {
   done
 
   echo "All files processed. Total successful transcriptions: ${succeeded} out of ${processed} processed, ${total_files} total."
+  
+  # Return the number of succeeded transcriptions
+  echo "${succeeded}"
 }
 
-get_audio_files
+function calculate_time_stats() {
+  local start_time=$1
+  local end_time=$2
+  local succeeded=$3
+
+  local total_seconds=$((end_time - start_time))
+  local hours=$((total_seconds / 3600))
+  local minutes=$(( (total_seconds % 3600) / 60 ))
+  local seconds=$((total_seconds % 60))
+
+  local avg_seconds_per_transcription=0
+  if [ ${succeeded} -gt 0 ]; then
+    avg_seconds_per_transcription=$(echo "scale=2; ${total_seconds} / ${succeeded}" | bc)
+  fi
+
+  echo "Total time: ${hours}h ${minutes}m ${seconds}s"
+  echo "Average time per transcription: ${avg_seconds_per_transcription} seconds"
+}
+
+# Capture start time
+start_time=$(date +%s)
+
+# Run the main function and capture the number of succeeded transcriptions
+succeeded=$(get_audio_files)
+
+# Capture end time
+end_time=$(date +%s)
+
+# Calculate and display time stats
+calculate_time_stats "${start_time}" "${end_time}" "${succeeded}"
