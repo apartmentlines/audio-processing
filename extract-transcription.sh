@@ -33,7 +33,7 @@ function get_audio_files() {
     subfolder=$(echo "${audio_file}" | cut -d'/' -f2)
     base_name=$(basename "${audio_file}" .wav)
 
-    transcribe "${audio_file}"
+    transcribe "${audio_file}" > /dev/null 2>&1
 
     if [ $? -eq 0 ]; then
       srt_file="${base_name}.srt"
@@ -51,7 +51,6 @@ function get_audio_files() {
 
   echo "All files processed. Total successful transcriptions: ${succeeded} out of ${processed} processed, ${total_files} total."
   
-  # Return the number of succeeded transcriptions
   return ${succeeded}
 }
 
