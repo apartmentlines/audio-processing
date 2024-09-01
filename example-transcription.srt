@@ -1,0 +1,95 @@
+1
+00:00:00,260 --> 00:00:01,601
+[SPEAKER_01]: Valley Alliant Palms, this is Rebecca.
+
+2
+00:00:01,621 --> 00:00:02,922
+[SPEAKER_01]: What is your maintenance emergency?
+
+3
+00:00:04,724 --> 00:00:05,204
+[SPEAKER_00]: Yes, ma'am.
+
+4
+00:00:06,125 --> 00:00:08,107
+[SPEAKER_00]: There's a, my bathroom is flooding.
+
+5
+00:00:08,127 --> 00:00:12,531
+[SPEAKER_00]: There's like a plumbing broken or something and it's flooding everywhere.
+
+6
+00:00:12,551 --> 00:00:16,714
+[SPEAKER_01]: Okay, what is broken in your bathroom?
+
+7
+00:00:18,175 --> 00:00:21,138
+[SPEAKER_00]: It's like a pipe, the pipe that's connected to the toilet.
+
+8
+00:00:22,679 --> 00:00:24,441
+[SPEAKER_01]: Are you able to turn off the water valve?
+
+9
+00:00:24,961 --> 00:00:26,422
+[SPEAKER_01]: Are you able to turn off the water valve?
+
+10
+00:00:27,383 --> 00:00:28,204
+[SPEAKER_01]: No, it's broken.
+
+11
+00:00:30,279 --> 00:00:30,779
+[SPEAKER_01]: Okay.
+
+12
+00:00:30,900 --> 00:00:35,243
+[SPEAKER_01]: What apartment?
+
+13
+00:00:35,263 --> 00:00:35,243
+211.
+
+14
+00:00:35,283 --> 00:00:35,843
+[SPEAKER_01]: 211.
+
+15
+00:00:35,343 --> 00:00:35,843
+[SPEAKER_01]: What's your name?
+
+16
+00:00:35,863 --> 00:00:38,065
+[SPEAKER_00]: Griselda.
+
+17
+00:00:40,527 --> 00:00:41,827
+[SPEAKER_01]: Griselda.
+
+18
+00:00:42,988 --> 00:00:46,871
+[SPEAKER_01]: And your phone number is 956-252-3979?
+
+19
+00:00:47,892 --> 00:00:48,112
+[SPEAKER_01]: Yes.
+
+20
+00:00:49,333 --> 00:00:49,633
+[SPEAKER_01]: Okay.
+
+21
+00:00:49,713 --> 00:00:53,536
+[SPEAKER_01]: I'll go ahead and I'll go ahead and let them know.
+
+22
+00:00:55,557 --> 00:00:55,858
+[SPEAKER_01]: Okay.
+
+23
+00:00:56,298 --> 00:00:56,538
+[SPEAKER_01]: All right.
+
+24
+00:00:56,558 --> 00:00:56,959
+[SPEAKER_01]: Thank you.
