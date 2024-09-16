@@ -21,24 +21,65 @@ class CustomerRecording:
     timestamp: int
 
 class AudioProcessor:
-    def __init__(self, args: argparse.Namespace):
-        self.args = args
+    def __init__(self,
+                 bucket: str,
+                 s3cfg: str,
+                 db_name: str,
+                 directory: str,
+                 debug: bool = False,
+                 force: bool = False,
+                 limit: Optional[int] = None,
+                 batch_size: int = 100):
+        self.bucket = bucket
+        self.s3cfg = s3cfg
+        self.db_name = db_name
+        self.directory = directory
+        self.debug = debug
+        self.force = force
+        self.limit = limit
+        self.batch_size = batch_size
         self.conn = None
         self.setup_logging()
 
     def setup_logging(self):
-        level = logging.DEBUG if self.args.debug else logging.INFO
+        level = logging.DEBUG if self.debug else logging.INFO
         logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
-        if self.args.debug:
-            logging.debug(f"Debug mode enabled. Arguments: {vars(self.args)}")
+        if self.debug:
+            logging.debug(f"Debug mode enabled. Arguments: {self.__dict__}")
 
     def get_db_connection(self):
         try:
-            self.conn = sqlite3.connect(self.args.db_name)
+            self.conn = sqlite3.connect(self.db_name)
             self.conn.row_factory = sqlite3.Row
-            logging.debug(f"Successfully connected to the database: {self.args.db_name}")
+            logging.debug(f"Successfully connected to the database: {self.db_name}")
+            self.create_table_if_not_exists()
         except sqlite3.Error as e:
             logging.error(f"Failed to connect to the database: {e}")
+            sys.exit(1)
+
+    def create_table_if_not_exists(self):
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS customer_recordings (
+            id INTEGER PRIMARY KEY,
+            master_id INTEGER NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            timestamp BIGINT NOT NULL DEFAULT 0
+        );
+        """
+        create_index_queries = [
+            "CREATE INDEX IF NOT EXISTS idx_master_id ON customer_recordings(master_id);",
+            "CREATE INDEX IF NOT EXISTS idx_filename ON customer_recordings(filename);",
+            "CREATE INDEX IF NOT EXISTS idx_timestamp ON customer_recordings(timestamp);"
+        ]
+
+        try:
+            with self.conn:
+                self.conn.execute(create_table_query)
+                for index_query in create_index_queries:
+                    self.conn.execute(index_query)
+            logging.debug("customer_recordings table and indexes created or already exist.")
+        except sqlite3.Error as e:
+            logging.error(f"Failed to create table or indexes: {e}")
             sys.exit(1)
 
     def fetch_recordings(self) -> List[CustomerRecording]:
@@ -53,7 +94,7 @@ class AudioProcessor:
         try:
             while True:
                 cursor = self.conn.cursor()
-                cursor.execute(query, (self.args.batch_size, offset))
+                cursor.execute(query, (self.batch_size, offset))
                 batch = cursor.fetchall()
 
                 if not batch:
@@ -68,10 +109,10 @@ class AudioProcessor:
                     ) for row in batch
                 ])
 
-                offset += self.args.batch_size
+                offset += self.batch_size
 
-                if self.args.limit and len(recordings) >= self.args.limit:
-                    recordings = recordings[:self.args.limit]
+                if self.limit and len(recordings) >= self.limit:
+                    recordings = recordings[:self.limit]
                     break
 
             logging.info(f"Fetched {len(recordings)} recordings from the database.")
@@ -83,9 +124,9 @@ class AudioProcessor:
     def process_recordings(self, recordings: List[CustomerRecording]):
         for recording in recordings:
             s3_key = f"{recording.master_id}/{recording.filename}"
-            local_path = os.path.join(str(recording.master_id), recording.filename)
+            local_path = os.path.join(self.directory, str(recording.master_id), recording.filename)
 
-            if not self.args.force and os.path.exists(local_path):
+            if not self.force and os.path.exists(local_path):
                 logging.debug(f"Skipping existing file: {local_path}")
                 continue
 
@@ -94,16 +135,20 @@ class AudioProcessor:
 
     def download_file(self, s3_key: str, local_path: str) -> bool:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        s3_path = f"s3://{self.args.bucket}/{s3_key}"
+        s3_path = f"s3://{self.bucket}/{s3_key}"
         command = [
             "s3cmd",
             "--config",
-            self.args.s3cfg,
+            self.s3cfg,
             "get",
             s3_path,
             local_path
         ]
         try:
+            if self.force and os.path.exists(local_path):
+                logging.debug(f"Removing existing file: {local_path}")
+                os.remove(local_path)
+
             logging.debug(f"Downloading {s3_path} to {local_path}")
             result = subprocess.run(command, check=True, capture_output=True, text=True)
             logging.debug(f"s3cmd stdout: {result.stdout}")
@@ -116,6 +161,9 @@ class AudioProcessor:
         except FileNotFoundError:
             logging.error("s3cmd is not installed or not found in PATH.")
             sys.exit(1)
+        except OSError as e:
+            logging.error(f"OS error occurred while handling file {local_path}: {e}")
+            return False
 
     def process_audio(self, file_path: str):
         output_path = f"{file_path}.processed.wav"
@@ -166,6 +214,9 @@ def parse_arguments() -> argparse.Namespace:
         "--db-name", default="customer_recordings.db", help="SQLite database name (default: customer_recordings.db)."
     )
     parser.add_argument(
+        "--directory", default="customer_recordings", help="Parent directory for downloaded files (default: customer_recordings)."
+    )
+    parser.add_argument(
         "--debug", action="store_true", help="Enable debug logging."
     )
     parser.add_argument(
@@ -181,7 +232,16 @@ def parse_arguments() -> argparse.Namespace:
 
 def main():
     args = parse_arguments()
-    processor = AudioProcessor(args)
+    processor = AudioProcessor(
+        bucket=args.bucket,
+        s3cfg=args.s3cfg,
+        db_name=args.db_name,
+        directory=args.directory,
+        debug=args.debug,
+        force=args.force,
+        limit=args.limit,
+        batch_size=args.batch_size
+    )
     processor.run()
 
 if __name__ == "__main__":
