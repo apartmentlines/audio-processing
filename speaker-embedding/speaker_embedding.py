@@ -11,18 +11,21 @@ import logging
 import numpy as np
 import scipy.stats
 
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('speaker_embedding')
+logging.basicConfig(
+    level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("speaker_embedding")
 logger.setLevel(logging.DEBUG)
 
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 stream_handler.setFormatter(formatter)
 
 logger.addHandler(stream_handler)
 logger.propagate = False
+
 
 def remove_silence(audio_path, min_silence_len=1000, silence_thresh=-40):
     logger.debug(f"Removing silence from {audio_path}")
@@ -30,9 +33,7 @@ def remove_silence(audio_path, min_silence_len=1000, silence_thresh=-40):
         audio = AudioSegment.from_file(audio_path)
         logger.debug(f"Audio file loaded, duration: {len(audio)/1000:.2f} seconds")
         chunks = split_on_silence(
-            audio,
-            min_silence_len=min_silence_len,
-            silence_thresh=silence_thresh
+            audio, min_silence_len=min_silence_len, silence_thresh=silence_thresh
         )
         logger.debug(f"Audio split into {len(chunks)} non-silent chunks")
         return sum(chunks)
@@ -40,11 +41,14 @@ def remove_silence(audio_path, min_silence_len=1000, silence_thresh=-40):
         logger.error(f"Error processing audio file: {e}")
         raise RuntimeError(f"Error processing audio file: {e}")
 
+
 def extract_speaker_embedding(audio_path):
     logger.debug(f"Extracting speaker embedding from {audio_path}")
     try:
         audio_without_silence = remove_silence(audio_path)
-        logger.debug(f"Silence removed, new duration: {len(audio_without_silence)/1000:.2f} seconds")
+        logger.debug(
+            f"Silence removed, new duration: {len(audio_without_silence)/1000:.2f} seconds"
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_filename = temp_file.name
@@ -68,8 +72,9 @@ def extract_speaker_embedding(audio_path):
         logger.error(f"Error extracting speaker embedding: {e}")
         raise RuntimeError(f"Error extracting speaker embedding: {e}")
 
+
 def summarize_embedding(embedding):
-    if hasattr(embedding, 'data'):
+    if hasattr(embedding, "data"):
         embedding = embedding.data
 
     if not isinstance(embedding, np.ndarray):
@@ -86,10 +91,11 @@ def summarize_embedding(embedding):
         "median": np.median(embedding_flat),
         "skewness": scipy.stats.skew(embedding_flat),
         "kurtosis": scipy.stats.kurtosis(embedding_flat),
-        "percentiles": np.percentile(embedding_flat, [25, 50, 75]).tolist()
+        "percentiles": np.percentile(embedding_flat, [25, 50, 75]).tolist(),
     }
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if len(sys.argv) != 2:
         logger.error("Incorrect number of arguments")
         print("Usage: python speaker_embedding.py <audio_file_path>")

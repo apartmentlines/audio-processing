@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 from pathlib import Path
 
+
 @dataclass
 class CustomerRecording:
     id: int
@@ -20,17 +21,20 @@ class CustomerRecording:
     filename: str
     timestamp: int
 
+
 class AudioProcessor:
-    def __init__(self,
-                 bucket: str,
-                 s3cfg: str,
-                 db_name: str,
-                 directory: str,
-                 debug: bool = False,
-                 force: bool = False,
-                 limit: Optional[int] = None,
-                 batch_size: int = 100,
-                 no_subdirs: bool = False):
+    def __init__(
+        self,
+        bucket: str,
+        s3cfg: str,
+        db_name: str,
+        directory: str,
+        debug: bool = False,
+        force: bool = False,
+        limit: Optional[int] = None,
+        batch_size: int = 100,
+        no_subdirs: bool = False,
+    ):
         self.bucket = bucket
         self.s3cfg = s3cfg
         self.db_name = db_name
@@ -45,7 +49,9 @@ class AudioProcessor:
 
     def setup_logging(self):
         level = logging.DEBUG if self.debug else logging.INFO
-        logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(
+            level=level, format="%(asctime)s - %(levelname)s - %(message)s"
+        )
         if self.debug:
             logging.debug(f"Debug mode enabled. Arguments: {self.__dict__}")
 
@@ -71,7 +77,7 @@ class AudioProcessor:
         create_index_queries = [
             "CREATE INDEX IF NOT EXISTS idx_master_id ON customer_recordings(master_id);",
             "CREATE INDEX IF NOT EXISTS idx_filename ON customer_recordings(filename);",
-            "CREATE INDEX IF NOT EXISTS idx_timestamp ON customer_recordings(timestamp);"
+            "CREATE INDEX IF NOT EXISTS idx_timestamp ON customer_recordings(timestamp);",
         ]
 
         try:
@@ -79,7 +85,9 @@ class AudioProcessor:
                 self.conn.execute(create_table_query)
                 for index_query in create_index_queries:
                     self.conn.execute(index_query)
-            logging.debug("customer_recordings table and indexes created or already exist.")
+            logging.debug(
+                "customer_recordings table and indexes created or already exist."
+            )
         except sqlite3.Error as e:
             logging.error(f"Failed to create table or indexes: {e}")
             sys.exit(1)
@@ -102,19 +110,22 @@ class AudioProcessor:
                 if not batch:
                     break
 
-                recordings.extend([
-                    CustomerRecording(
-                        id=row['id'],
-                        master_id=row['master_id'],
-                        filename=row['filename'],
-                        timestamp=row['timestamp']
-                    ) for row in batch
-                ])
+                recordings.extend(
+                    [
+                        CustomerRecording(
+                            id=row["id"],
+                            master_id=row["master_id"],
+                            filename=row["filename"],
+                            timestamp=row["timestamp"],
+                        )
+                        for row in batch
+                    ]
+                )
 
                 offset += self.batch_size
 
                 if self.limit and len(recordings) >= self.limit:
-                    recordings = recordings[:self.limit]
+                    recordings = recordings[: self.limit]
                     break
 
             logging.info(f"Fetched {len(recordings)} recordings from the database.")
@@ -129,7 +140,9 @@ class AudioProcessor:
             if self.no_subdirs:
                 local_path = self.directory / recording.filename
             else:
-                local_path = self.directory / str(recording.master_id) / recording.filename
+                local_path = (
+                    self.directory / str(recording.master_id) / recording.filename
+                )
 
             if not self.force and local_path.exists():
                 logging.debug(f"Skipping existing file: {local_path}")
@@ -147,7 +160,7 @@ class AudioProcessor:
             str(self.s3cfg),
             "get",
             s3_path,
-            str(local_path)
+            str(local_path),
         ]
         try:
             if self.force and local_path.exists():
@@ -171,13 +184,22 @@ class AudioProcessor:
             return False
 
     def process_audio(self, file_path: Path):
-        output_path = file_path.with_suffix('.processed.wav')
+        output_path = file_path.with_suffix(".processed.wav")
         sox_command = [
-            "sox", str(file_path), str(output_path),
-            "rate", "16k",
+            "sox",
+            str(file_path),
+            str(output_path),
+            "rate",
+            "16k",
             "norm",
-            "highpass", "100",
-            "compand", "0.02,0.20", "5:-60,-40,-10", "-5", "-90", "0.1"
+            "highpass",
+            "100",
+            "compand",
+            "0.02,0.20",
+            "5:-60,-40,-10",
+            "-5",
+            "-90",
+            "0.1",
         ]
         try:
             logging.debug(f"Processing audio: {' '.join(sox_command)}")
@@ -205,38 +227,52 @@ class AudioProcessor:
         logging.info(f"Total execution time: {end_time - start_time:.2f} seconds")
         logging.info("Audio processing script completed")
 
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download and process audio files from S3 based on SQLite records."
     )
+    parser.add_argument("--bucket", required=True, help="S3 bucket name.")
     parser.add_argument(
-        "--bucket", required=True, help="S3 bucket name."
+        "--s3cfg",
+        default=".s3cfg",
+        help="Path to the .s3cfg configuration file (default: %(default)s).",
     )
     parser.add_argument(
-        "--s3cfg", default=".s3cfg", help="Path to the .s3cfg configuration file (default: %(default)s)."
+        "--db-name",
+        default="customer_recordings.db",
+        help="SQLite database name (default: %(default)s).",
     )
     parser.add_argument(
-        "--db-name", default="customer_recordings.db", help="SQLite database name (default: %(default)s)."
+        "--directory",
+        default="customer_recordings",
+        help="Parent directory for downloaded files (default: %(default)s).",
     )
     parser.add_argument(
-        "--directory", default="customer_recordings", help="Parent directory for downloaded files (default: %(default)s)."
+        "--no-subdirs",
+        action="store_true",
+        help="Don't create subdirectories for each master_id.",
     )
     parser.add_argument(
-        "--no-subdirs", action="store_true", help="Don't create subdirectories for each master_id."
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Number of records to fetch in each database query (default: %(default)s).",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=100, help="Number of records to fetch in each database query (default: %(default)s)."
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit the total number of recordings to process.",
     )
     parser.add_argument(
-        "--limit", type=int, default=None, help="Limit the total number of recordings to process."
+        "--force",
+        action="store_true",
+        help="Force download and processing of existing files.",
     )
-    parser.add_argument(
-        "--force", action="store_true", help="Force download and processing of existing files."
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging."
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser.parse_args()
+
 
 def main():
     args = parse_arguments()
@@ -249,9 +285,10 @@ def main():
         force=args.force,
         limit=args.limit,
         batch_size=args.batch_size,
-        no_subdirs=args.no_subdirs
+        no_subdirs=args.no_subdirs,
     )
     processor.run()
+
 
 if __name__ == "__main__":
     main()
