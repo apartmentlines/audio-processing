@@ -130,14 +130,20 @@ class EAFUpdater:
                     (recording.id,),
                 )
                 self.conn.commit()
-                logging.info(f"Marked recording ID {recording.id} (filename: {recording.filename}) as complete.")
+                logging.info(
+                    f"Marked recording ID {recording.id} (filename: {recording.filename}) as complete."
+                )
                 return True
             except sqlite3.Error as e:
-                logging.error(f"Failed to update database for recording ID {recording.id} (filename: {recording.filename}): {e}")
+                logging.error(
+                    f"Failed to update database for recording ID {recording.id} (filename: {recording.filename}): {e}"
+                )
                 return False
         else:
             logging.warning(f"EAF file {eaf_path} has not been modified.")
-            logging.warning("You must save your changes to the EAF file before marking it as complete.")
+            logging.warning(
+                "You must save your changes to the EAF file before marking it as complete."
+            )
             return False
 
     def create_archive(self):
@@ -170,35 +176,42 @@ class EAFUpdater:
             eaf_path = self.get_eaf_path(recording)
 
             if not eaf_path.exists():
-                logging.warning(f"EAF file not found for recording ID {recording.id} (filename: {recording.filename}): {eaf_path}")
+                logging.warning(
+                    f"EAF file not found for recording ID {recording.id} (filename: {recording.filename}): {eaf_path}"
+                )
                 continue
 
             original_mtime = eaf_path.stat().st_mtime
 
             while True:
-                confirm = input(f"Open EAF file for recording ID {recording.id} (filename: {recording.filename})? (y/n/q): ").lower()
-                if confirm == 'y':
+                confirm = input(
+                    f"Open EAF file for recording ID {recording.id} (filename: {recording.filename})? (y/n/q): "
+                ).lower()
+                if confirm == "y":
                     self.open_file(eaf_path)
                     break
-                elif confirm == 'n':
-                    logging.info(f"Skipping recording ID {recording.id} (filename: {recording.filename})")
+                elif confirm == "n":
+                    logging.info(
+                        f"Skipping recording ID {recording.id} (filename: {recording.filename})"
+                    )
                     self.quit_process()
-                elif confirm == 'q':
+                elif confirm == "q":
                     self.quit_process()
                 else:
                     print("Invalid input. Please enter 'y', 'n', or 'q'.")
 
             while True:
                 action = input("Mark as complete (c) or quit (q)? ").lower()
-                if action == 'c':
+                if action == "c":
                     if self.mark_complete(recording, original_mtime):
                         break
-                elif action == 'q':
+                elif action == "q":
                     self.quit_process()
                 else:
                     print("Invalid input. Please enter 'c' or 'q'.")
 
         self.quit_process()
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -236,9 +249,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser.parse_args()
 
+
 def signal_handler(signum, frame):
     logging.info("Received interrupt signal.")
     updater.quit_process()
+
 
 def main():
     global updater
@@ -255,6 +270,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     updater.run()
+
 
 if __name__ == "__main__":
     main()

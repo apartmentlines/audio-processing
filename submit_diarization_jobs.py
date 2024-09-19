@@ -97,9 +97,7 @@ class DiarizationJobSubmitter:
         return self.data_directory / recording.filename
 
     def get_diarization_results_path(self, recording: CustomerRecording) -> Path:
-        return (
-            self.results_directory / f"{Path(recording.filename).stem}.json"
-        )
+        return self.results_directory / f"{Path(recording.filename).stem}.json"
 
     def validate_endpoint_hostname(self):
         import re
@@ -127,22 +125,28 @@ class DiarizationJobSubmitter:
         """
         if not isinstance(data, dict):
             return False
-        if 'jobId' not in data or 'status' not in data or 'output' not in data:
+        if "jobId" not in data or "status" not in data or "output" not in data:
             return False
-        if not isinstance(data['output'], dict) or 'diarization' not in data['output']:
+        if not isinstance(data["output"], dict) or "diarization" not in data["output"]:
             return False
-        if not isinstance(data['output']['diarization'], list):
+        if not isinstance(data["output"]["diarization"], list):
             return False
-        for segment in data['output']['diarization']:
+        for segment in data["output"]["diarization"]:
             if not isinstance(segment, dict):
                 return False
-            if 'speaker' not in segment or 'start' not in segment or 'end' not in segment:
+            if (
+                "speaker" not in segment
+                or "start" not in segment
+                or "end" not in segment
+            ):
                 return False
-            if not isinstance(segment['speaker'], str):
+            if not isinstance(segment["speaker"], str):
                 return False
-            if not isinstance(segment['start'], (int, float)) or not isinstance(segment['end'], (int, float)):
+            if not isinstance(segment["start"], (int, float)) or not isinstance(
+                segment["end"], (int, float)
+            ):
                 return False
-            if segment['start'] >= segment['end']:
+            if segment["start"] >= segment["end"]:
                 return False
         return True
 
@@ -230,7 +234,9 @@ class DiarizationJobSubmitter:
                 abort(404)
             data = request.get_json()
             if not self._validate_diarization_json(data):
-                logging.error(f"Invalid JSON data received for recording ID {recording_id} (filename: {recording.filename})")
+                logging.error(
+                    f"Invalid JSON data received for recording ID {recording_id} (filename: {recording.filename})"
+                )
                 abort(400)
             diarization_results_path = self.get_diarization_results_path(recording)
             try:

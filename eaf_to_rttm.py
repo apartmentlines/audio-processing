@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 from typing import Dict, Optional, Iterator
 
+
 class EAFtoRTTMConverter:
     """
     A class to convert .eaf files produced from the ELAN program into RTTM format.
@@ -34,8 +35,7 @@ class EAFtoRTTMConverter:
         """Set up logging configuration."""
         level = logging.DEBUG if self.debug else logging.INFO
         logging.basicConfig(
-            level=level,
-            format="%(asctime)s - %(levelname)s - %(message)s"
+            level=level, format="%(asctime)s - %(levelname)s - %(message)s"
         )
 
     def run(self):
@@ -60,7 +60,7 @@ class EAFtoRTTMConverter:
         :param eaf_file: Path to the .eaf file.
         :param rttm_file: Path where the RTTM file will be written.
         """
-        with rttm_file.open('w') as outfile:
+        with rttm_file.open("w") as outfile:
             for annotation in self.parse_eaf_file(eaf_file):
                 outfile.write(f"{annotation}\n")
         logging.info(f"Wrote RTTM file: {rttm_file}")
@@ -79,12 +79,14 @@ class EAFtoRTTMConverter:
             time_slots = self.build_time_slots(root)
             file_id = self.get_file_id(root)
 
-            for tier in root.findall('TIER'):
-                speaker_name = tier.get('TIER_ID')
+            for tier in root.findall("TIER"):
+                speaker_name = tier.get("TIER_ID")
                 logging.debug(f"Processing TIER_ID (speaker): {speaker_name}")
-                
-                for annotation in tier.findall('ANNOTATION'):
-                    rttm_line = self.process_annotation(annotation, time_slots, file_id, speaker_name)
+
+                for annotation in tier.findall("ANNOTATION"):
+                    rttm_line = self.process_annotation(
+                        annotation, time_slots, file_id, speaker_name
+                    )
                     if rttm_line:
                         yield rttm_line
 
@@ -101,10 +103,10 @@ class EAFtoRTTMConverter:
         :return: Dictionary mapping TIME_SLOT_ID to TIME_VALUE.
         """
         time_slots = {}
-        time_order = root.find('TIME_ORDER')
-        for time_slot in time_order.findall('TIME_SLOT'):
-            time_slot_id = time_slot.get('TIME_SLOT_ID')
-            time_value = time_slot.get('TIME_VALUE')
+        time_order = root.find("TIME_ORDER")
+        for time_slot in time_order.findall("TIME_SLOT"):
+            time_slot_id = time_slot.get("TIME_SLOT_ID")
+            time_value = time_slot.get("TIME_VALUE")
             if time_value is None:
                 logging.error(f"Missing TIME_VALUE for TIME_SLOT_ID {time_slot_id}")
                 continue
@@ -112,7 +114,9 @@ class EAFtoRTTMConverter:
                 time_slots[time_slot_id] = int(time_value)
                 logging.debug(f"Time slot {time_slot_id} = {time_value} ms")
             except ValueError:
-                logging.error(f"Invalid TIME_VALUE '{time_value}' for TIME_SLOT_ID {time_slot_id}")
+                logging.error(
+                    f"Invalid TIME_VALUE '{time_value}' for TIME_SLOT_ID {time_slot_id}"
+                )
         return time_slots
 
     def get_file_id(self, root: ET.Element) -> str:
@@ -122,20 +126,26 @@ class EAFtoRTTMConverter:
         :param root: XML root element.
         :return: File ID string.
         """
-        header = root.find('HEADER')
-        media_descriptor = header.find('MEDIA_DESCRIPTOR')
-        media_url = media_descriptor.get('MEDIA_URL')
+        header = root.find("HEADER")
+        media_descriptor = header.find("MEDIA_DESCRIPTOR")
+        media_url = media_descriptor.get("MEDIA_URL")
         logging.debug(f"Media URL: {media_url}")
-        
+
         parsed_url = urlparse(media_url)
         media_file_path = unquote(parsed_url.path)
         logging.debug(f"Media file path: {media_file_path}")
-        
+
         file_id = Path(media_file_path).stem
         logging.debug(f"File ID: {file_id}")
         return file_id
 
-    def process_annotation(self, annotation: ET.Element, time_slots: Dict[str, int], file_id: str, speaker_name: str) -> Optional[str]:
+    def process_annotation(
+        self,
+        annotation: ET.Element,
+        time_slots: Dict[str, int],
+        file_id: str,
+        speaker_name: str,
+    ) -> Optional[str]:
         """
         Process a single annotation and return an RTTM line.
 
@@ -145,17 +155,21 @@ class EAFtoRTTMConverter:
         :param speaker_name: Speaker name string (derived from TIER_ID in the EAF file).
         :return: RTTM line string or None if invalid.
         """
-        alignable_annotation = annotation.find('ALIGNABLE_ANNOTATION')
+        alignable_annotation = annotation.find("ALIGNABLE_ANNOTATION")
         if alignable_annotation is None:
-            logging.warning(f"No ALIGNABLE_ANNOTATION found under ANNOTATION in TIER {speaker_name}")
+            logging.warning(
+                f"No ALIGNABLE_ANNOTATION found under ANNOTATION in TIER {speaker_name}"
+            )
             return None
 
-        annotation_id = alignable_annotation.get('ANNOTATION_ID')
-        time_slot_ref1 = alignable_annotation.get('TIME_SLOT_REF1')
-        time_slot_ref2 = alignable_annotation.get('TIME_SLOT_REF2')
+        annotation_id = alignable_annotation.get("ANNOTATION_ID")
+        time_slot_ref1 = alignable_annotation.get("TIME_SLOT_REF1")
+        time_slot_ref2 = alignable_annotation.get("TIME_SLOT_REF2")
 
         if time_slot_ref1 not in time_slots or time_slot_ref2 not in time_slots:
-            logging.error(f"Time slot reference not found for annotation {annotation_id}")
+            logging.error(
+                f"Time slot reference not found for annotation {annotation_id}"
+            )
             return None
 
         start_time_ms = time_slots[time_slot_ref1]
@@ -171,11 +185,15 @@ class EAFtoRTTMConverter:
         # Check for non-empty ANNOTATION_VALUE
         # Note: In this format, we expect ANNOTATION_VALUE to be empty.
         # We only log when it's non-empty as it's an unusual case.
-        annotation_value = alignable_annotation.find('ANNOTATION_VALUE')
+        annotation_value = alignable_annotation.find("ANNOTATION_VALUE")
         if annotation_value is not None and annotation_value.text:
-            logging.warning(f"Non-empty ANNOTATION_VALUE found for annotation {annotation_id}: {annotation_value.text}")
+            logging.warning(
+                f"Non-empty ANNOTATION_VALUE found for annotation {annotation_id}: {annotation_value.text}"
+            )
 
-        logging.debug(f"Annotation {annotation_id}: onset {onset_sec} s, duration {duration_sec} s, speaker {speaker_name}")
+        logging.debug(
+            f"Annotation {annotation_id}: onset {onset_sec} s, duration {duration_sec} s, speaker {speaker_name}"
+        )
         # Channel ID is always set to "1" as per RTTM specification
         return f"SPEAKER {file_id} 1 {onset_sec:.3f} {duration_sec:.3f} <NA> <NA> {speaker_name} <NA> <NA>"
 
@@ -187,14 +205,25 @@ def parse_arguments() -> argparse.Namespace:
     :return: Parsed arguments.
     """
     parser = argparse.ArgumentParser(
-        description='EAF to RTTM Converter: Convert .eaf files produced from the ELAN program into RTTM format files.',
+        description="EAF to RTTM Converter: Convert .eaf files produced from the ELAN program into RTTM format files.",
     )
-    parser.add_argument('--input-dir', type=Path, default=Path('eaf'),
-                        help='Directory containing .eaf files to be converted (default: %(default)s).')
-    parser.add_argument('--output-dir', type=Path, default=Path('rttm'),
-                        help='Directory to write RTTM files (default: %(default)s).')
-    parser.add_argument('--debug', action='store_true',
-                        help='Enable debug logging for more detailed output.')
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        default=Path("eaf"),
+        help="Directory containing .eaf files to be converted (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("rttm"),
+        help="Directory to write RTTM files (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging for more detailed output.",
+    )
     return parser.parse_args()
 
 
@@ -205,9 +234,7 @@ def main():
     args = parse_arguments()
     try:
         converter = EAFtoRTTMConverter(
-            input_dir=args.input_dir,
-            output_dir=args.output_dir,
-            debug=args.debug
+            input_dir=args.input_dir, output_dir=args.output_dir, debug=args.debug
         )
         converter.run()
     except Exception as e:
@@ -215,5 +242,5 @@ def main():
         raise
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
