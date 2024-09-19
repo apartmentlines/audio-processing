@@ -138,6 +138,7 @@ class DiarizationJobSubmitter:
         query = """
             SELECT id, master_id, filename, timestamp
             FROM customer_recordings
+            WHERE eaf_complete = 0
             LIMIT ? OFFSET ?
         """
         offset = 0

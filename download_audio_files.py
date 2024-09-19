@@ -71,13 +71,15 @@ class AudioProcessor:
             id INTEGER PRIMARY KEY,
             master_id INTEGER NOT NULL,
             filename VARCHAR(255) NOT NULL,
-            timestamp BIGINT NOT NULL DEFAULT 0
+            timestamp BIGINT NOT NULL DEFAULT 0,
+            eaf_complete INT NOT NULL DEFAULT 0
         );
         """
         create_index_queries = [
             "CREATE INDEX IF NOT EXISTS idx_master_id ON customer_recordings(master_id);",
             "CREATE INDEX IF NOT EXISTS idx_filename ON customer_recordings(filename);",
             "CREATE INDEX IF NOT EXISTS idx_timestamp ON customer_recordings(timestamp);",
+            "CREATE INDEX IF NOT EXISTS idx_eaf_complete ON customer_recordings(eaf_complete);",
         ]
 
         try:
