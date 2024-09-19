@@ -45,24 +45,24 @@ def extract_speaker_embedding(audio_path):
     try:
         audio_without_silence = remove_silence(audio_path)
         logger.debug(f"Silence removed, new duration: {len(audio_without_silence)/1000:.2f} seconds")
-        
+
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_filename = temp_file.name
             logger.debug(f"Created temporary file: {temp_filename}")
             audio_without_silence.export(temp_filename, format="wav")
-        
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.debug(f"Using device: {device}")
-        
+
         inference = Inference("pyannote/embedding", device=device)
         logger.debug("Inference model loaded")
-        
+
         embedding = inference(temp_filename)
         logger.debug("Speaker embedding extracted")
-        
+
         os.unlink(temp_filename)
         logger.debug(f"Temporary file {temp_filename} deleted")
-        
+
         return embedding
     except Exception as e:
         logger.error(f"Error extracting speaker embedding: {e}")
@@ -74,9 +74,9 @@ def summarize_embedding(embedding):
 
     if not isinstance(embedding, np.ndarray):
         embedding = np.array(embedding)
-    
+
     embedding_flat = embedding.flatten()
-    
+
     return {
         "shape": embedding.shape,
         "mean": np.mean(embedding_flat),
@@ -94,7 +94,7 @@ if __name__ == '__main__':
         logger.error("Incorrect number of arguments")
         print("Usage: python speaker_embedding.py <audio_file_path>")
         sys.exit(1)
-    
+
     audio_path = sys.argv[1]
     logger.info(f"Processing audio file: {audio_path}")
     try:
