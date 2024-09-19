@@ -5,13 +5,13 @@ A script to download and process audio files from S3 based on records from an SQ
 
 import argparse
 import logging
-import os
 import sqlite3
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from typing import List, Optional
+from pathlib import Path
 
 @dataclass
 class CustomerRecording:
@@ -29,15 +29,17 @@ class AudioProcessor:
                  debug: bool = False,
                  force: bool = False,
                  limit: Optional[int] = None,
-                 batch_size: int = 100):
+                 batch_size: int = 100,
+                 no_subdirs: bool = False):
         self.bucket = bucket
         self.s3cfg = s3cfg
         self.db_name = db_name
-        self.directory = directory
+        self.directory = Path(directory)
         self.debug = debug
         self.force = force
         self.limit = limit
         self.batch_size = batch_size
+        self.no_subdirs = no_subdirs
         self.conn = None
         self.setup_logging()
 
@@ -124,30 +126,33 @@ class AudioProcessor:
     def process_recordings(self, recordings: List[CustomerRecording]):
         for recording in recordings:
             s3_key = f"{recording.master_id}/{recording.filename}"
-            local_path = os.path.join(self.directory, str(recording.master_id), recording.filename)
+            if self.no_subdirs:
+                local_path = self.directory / recording.filename
+            else:
+                local_path = self.directory / str(recording.master_id) / recording.filename
 
-            if not self.force and os.path.exists(local_path):
+            if not self.force and local_path.exists():
                 logging.debug(f"Skipping existing file: {local_path}")
                 continue
 
             if self.download_file(s3_key, local_path):
                 self.process_audio(local_path)
 
-    def download_file(self, s3_key: str, local_path: str) -> bool:
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    def download_file(self, s3_key: str, local_path: Path) -> bool:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
         s3_path = f"s3://{self.bucket}/{s3_key}"
         command = [
             "s3cmd",
             "--config",
-            self.s3cfg,
+            str(self.s3cfg),
             "get",
             s3_path,
-            local_path
+            str(local_path)
         ]
         try:
-            if self.force and os.path.exists(local_path):
+            if self.force and local_path.exists():
                 logging.debug(f"Removing existing file: {local_path}")
-                os.remove(local_path)
+                local_path.unlink()
 
             logging.debug(f"Downloading {s3_path} to {local_path}")
             result = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -165,10 +170,10 @@ class AudioProcessor:
             logging.error(f"OS error occurred while handling file {local_path}: {e}")
             return False
 
-    def process_audio(self, file_path: str):
-        output_path = f"{file_path}.processed.wav"
+    def process_audio(self, file_path: Path):
+        output_path = file_path.with_suffix('.processed.wav')
         sox_command = [
-            "sox", file_path, output_path,
+            "sox", str(file_path), str(output_path),
             "rate", "16k",
             "norm",
             "highpass", "100",
@@ -178,7 +183,7 @@ class AudioProcessor:
             logging.debug(f"Processing audio: {' '.join(sox_command)}")
             subprocess.run(sox_command, check=True, capture_output=True, text=True)
             logging.info(f"Successfully processed: {output_path}")
-            os.replace(output_path, file_path)  # Replace original with processed file
+            output_path.replace(file_path)  # Replace original with processed file
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to process {file_path}: {e.stderr}")
         except FileNotFoundError:
@@ -208,25 +213,28 @@ def parse_arguments() -> argparse.Namespace:
         "--bucket", required=True, help="S3 bucket name."
     )
     parser.add_argument(
-        "--s3cfg", default=".s3cfg", help="Path to the .s3cfg configuration file (default: .s3cfg)."
+        "--s3cfg", default=".s3cfg", help="Path to the .s3cfg configuration file (default: %(default)s)."
     )
     parser.add_argument(
-        "--db-name", default="customer_recordings.db", help="SQLite database name (default: customer_recordings.db)."
+        "--db-name", default="customer_recordings.db", help="SQLite database name (default: %(default)s)."
     )
     parser.add_argument(
-        "--directory", default="customer_recordings", help="Parent directory for downloaded files (default: customer_recordings)."
+        "--directory", default="customer_recordings", help="Parent directory for downloaded files (default: %(default)s)."
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging."
+        "--no-subdirs", action="store_true", help="Don't create subdirectories for each master_id."
     )
     parser.add_argument(
-        "--force", action="store_true", help="Force download and processing of existing files."
+        "--batch-size", type=int, default=100, help="Number of records to fetch in each database query (default: %(default)s)."
     )
     parser.add_argument(
         "--limit", type=int, default=None, help="Limit the total number of recordings to process."
     )
     parser.add_argument(
-        "--batch-size", type=int, default=100, help="Number of records to fetch in each database query (default: 100)."
+        "--force", action="store_true", help="Force download and processing of existing files."
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug logging."
     )
     return parser.parse_args()
 
@@ -240,7 +248,8 @@ def main():
         debug=args.debug,
         force=args.force,
         limit=args.limit,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        no_subdirs=args.no_subdirs
     )
     processor.run()
 
