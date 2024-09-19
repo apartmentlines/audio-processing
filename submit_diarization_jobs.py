@@ -98,7 +98,7 @@ class DiarizationJobSubmitter:
 
     def get_diarization_results_path(self, recording: CustomerRecording) -> Path:
         return (
-            self.results_directory / f"{Path(recording.filename).stem}.diarization.json"
+            self.results_directory / f"{Path(recording.filename).stem}.json"
         )
 
     def validate_endpoint_hostname(self):
