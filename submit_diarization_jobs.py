@@ -15,7 +15,7 @@ import time
 import threading
 from os import environ
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import requests
 from flask import Flask, request, send_file, jsonify, abort
 from queue import Queue
@@ -116,6 +116,36 @@ class DiarizationJobSubmitter:
         else:
             logging.debug(f"Endpoint hostname {self.endpoint_hostname} validated.")
 
+    def _validate_diarization_json(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate the structure of the diarization JSON data.
+
+        :param data: The loaded JSON data
+        :type data: Dict[str, Any]
+        :return: True if the JSON is valid, False otherwise
+        :rtype: bool
+        """
+        if not isinstance(data, dict):
+            return False
+        if 'jobId' not in data or 'status' not in data or 'output' not in data:
+            return False
+        if not isinstance(data['output'], dict) or 'diarization' not in data['output']:
+            return False
+        if not isinstance(data['output']['diarization'], list):
+            return False
+        for segment in data['output']['diarization']:
+            if not isinstance(segment, dict):
+                return False
+            if 'speaker' not in segment or 'start' not in segment or 'end' not in segment:
+                return False
+            if not isinstance(segment['speaker'], str):
+                return False
+            if not isinstance(segment['start'], (int, float)) or not isinstance(segment['end'], (int, float)):
+                return False
+            if segment['start'] >= segment['end']:
+                return False
+        return True
+
     def setup_logging(self):
         level = logging.DEBUG if self.debug else logging.INFO
         logging.basicConfig(
@@ -194,14 +224,14 @@ class DiarizationJobSubmitter:
 
         @self.app.route("/results/<int:recording_id>", methods=["POST"])
         def receive_results(recording_id):
-            data = request.get_json()
-            if not data:
-                logging.error(f"No JSON data received for recording ID {recording_id}")
-                abort(400)
             recording = self.get_recording_by_id(recording_id)
             if not recording:
                 logging.error(f"Recording not found: ID {recording_id}")
                 abort(404)
+            data = request.get_json()
+            if not self._validate_diarization_json(data):
+                logging.error(f"Invalid JSON data received for recording ID {recording_id} (filename: {recording.filename})")
+                abort(400)
             diarization_results_path = self.get_diarization_results_path(recording)
             try:
                 diarization_results_path.parent.mkdir(parents=True, exist_ok=True)
