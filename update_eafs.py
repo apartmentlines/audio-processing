@@ -164,6 +164,9 @@ class EAFUpdater:
             self.conn.close()
             logging.debug("Database connection closed.")
         logging.info(f"Archive created at: {self.archive_path}")
+        print("")
+        print("\033[1;31mIMPORTANT: Remember to send the newly created archive to the infrastructure team!\033[0m")
+        print("")
         sys.exit(0)
 
     def run(self):
