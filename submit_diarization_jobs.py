@@ -8,7 +8,7 @@ Also starts a local web server to serve audio files and receive webhook results.
 import argparse
 import logging
 import json
-import os
+from pathlib import Path
 import sqlite3
 import sys
 import time
@@ -36,7 +36,8 @@ class DiarizationJobSubmitter:
     def __init__(self,
                  api_key: Optional[str],
                  db_name: str,
-                 directory: str,
+                 data_directory: Path,
+                 results_directory: Path,
                  endpoint_hostname: str,
                  endpoint_port: int = 4000,
                  debug: bool = False,
@@ -47,7 +48,8 @@ class DiarizationJobSubmitter:
         if not self.api_key:
             raise ValueError("API key must be provided either through --api-key argument or PYANNOTE_API_KEY environment variable")
         self.db_name = db_name
-        self.directory = directory
+        self.data_directory = data_directory
+        self.results_directory = results_directory
         self.endpoint_hostname = endpoint_hostname
         self.endpoint_port = endpoint_port
         self.debug = debug
@@ -85,12 +87,11 @@ class DiarizationJobSubmitter:
             logging.error(f"API request failed: {e}")
             return None
 
-    def get_file_path(self, recording: CustomerRecording) -> str:
-        return os.path.join(self.directory, str(recording.master_id), recording.filename)
+    def get_file_path(self, recording: CustomerRecording) -> Path:
+        return self.data_directory / recording.filename
 
-    def get_diarization_results_path(self, recording: CustomerRecording) -> str:
-        file_path = self.get_file_path(recording)
-        return f"{os.path.splitext(file_path)[0]}.diarization.json"
+    def get_diarization_results_path(self, recording: CustomerRecording) -> Path:
+        return self.results_directory / f"{Path(recording.filename).stem}.diarization.json"
 
     def validate_endpoint_hostname(self):
         import re
@@ -168,11 +169,11 @@ class DiarizationJobSubmitter:
                 logging.error(f"Recording not found: ID {recording_id}")
                 abort(404)
             file_path = self.get_file_path(recording)
-            if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            if not file_path.exists() or not file_path.is_file():
                 logging.error(f"Audio file not found: {file_path}")
                 abort(404)
             logging.debug(f"Serving audio file: {file_path}")
-            return send_file(file_path, mimetype='audio/wav')
+            return send_file(file_path.resolve(), mimetype='audio/wav')
 
         @self.app.route('/results/<int:recording_id>', methods=['POST'])
         def receive_results(recording_id):
@@ -186,7 +187,8 @@ class DiarizationJobSubmitter:
                 abort(404)
             diarization_results_path = self.get_diarization_results_path(recording)
             try:
-                with open(diarization_results_path, 'w') as f:
+                diarization_results_path.parent.mkdir(parents=True, exist_ok=True)
+                with diarization_results_path.open('w') as f:
                     json.dump(data, f, indent=4)
                 logging.info(f"Received and saved diarization results for recording ID {recording_id} (filename: {recording.filename}) at {diarization_results_path}")
                 self.job_queue.task_done()  # Mark the job as done
@@ -255,11 +257,11 @@ class DiarizationJobSubmitter:
         file_path = self.get_file_path(recording)
         diarization_results_path = self.get_diarization_results_path(recording)
 
-        if os.path.exists(diarization_results_path) and not self.force:
+        if diarization_results_path.exists() and not self.force:
             logging.info(f"Diarization results already exist for recording ID {recording.id} (filename: {recording.filename}), skipping")
             return True
 
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not file_path.exists() or not file_path.is_file():
             logging.error(f"Audio file not found: {file_path}, skipping recording ID {recording.id} (filename: {recording.filename})")
             return True
 
@@ -330,31 +332,34 @@ def parse_arguments() -> argparse.Namespace:
         description="Submit diarization jobs to pyannote.ai API based on SQLite records."
     )
     parser.add_argument(
+        "--db-name", default="customer_recordings.db", help="SQLite database name (default: %(default)s)."
+    )
+    parser.add_argument(
         "--api-key", required=False, help="pyannote.ai API key. If not provided, PYANNOTE_API_KEY environment variable will be used."
     )
     parser.add_argument(
-        "--db-name", default="customer_recordings.db", help="SQLite database name (default: customer_recordings.db)."
+        "--data-directory", type=Path, default=Path("data"), help="Parent directory for audio files (default: %(default)s)."
     )
     parser.add_argument(
-        "--directory", default="customer_recordings", help="Parent directory for audio files (default: customer_recordings)."
+        "--results-directory", type=Path, default=Path("diarization-results"), help="Directory for storing diarization results (default: %(default)s)."
     )
     parser.add_argument(
         "--endpoint-hostname", required=True, help="Endpoint hostname for building the URLs (must be a fully qualified domain name)."
     )
     parser.add_argument(
-        "--endpoint-port", type=int, default=4000, help="Port for the local web server (default: 4000)."
+        "--endpoint-port", type=int, default=4000, help="Port for the local web server (default: %(default)s)."
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging."
-    )
-    parser.add_argument(
-        "--force", action="store_true", help="Force processing of existing files."
+        "--batch-size", type=int, default=100, help="Number of records to fetch in each database query (default: %(default)s)."
     )
     parser.add_argument(
         "--limit", type=int, default=None, help="Limit the total number of recordings to process."
     )
     parser.add_argument(
-        "--batch-size", type=int, default=100, help="Number of records to fetch in each database query (default: 100)."
+        "--force", action="store_true", help="Force processing of existing files."
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug logging."
     )
     return parser.parse_args()
 
@@ -364,7 +369,8 @@ def main():
         submitter = DiarizationJobSubmitter(
             api_key=args.api_key,
             db_name=args.db_name,
-            directory=args.directory,
+            data_directory=args.data_directory,
+            results_directory=args.results_directory,
             endpoint_hostname=args.endpoint_hostname,
             endpoint_port=args.endpoint_port,
             debug=args.debug,
