@@ -416,7 +416,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--data-directory",
         type=Path,
-        default=Path("data"),
+        default=Path("audio"),
         help="Parent directory for audio files (default: %(default)s).",
     )
     parser.add_argument(
