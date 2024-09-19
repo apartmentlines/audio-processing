@@ -47,8 +47,14 @@ Each script in this project can be run independently or as part of a larger pipe
 ### Example pipeline
 
 ```sh
-	download_audio_files.py --bucket some-s3-bucket --s3cfg /home/someuser/.s3cfg.someconfig  --directory data --no-subdirs --batch-size 1000 --limit 2 --debug
-	submit_diarization_jobs.py --endpoint-hostname 2df7-45-46-89-55.ngrok-free.app --debug
+    download_audio_files.py --bucket some-s3-bucket --s3cfg /home/someuser/.s3cfg.someconfig  --directory audio --no-subdirs --batch-size 1000 --limit 2 --debug
+    submit_diarization_jobs.py --endpoint-hostname 2df7-45-46-89-55.ngrok-free.app --debug
+    # Use https://github.com/apartmentlines/diarization-to-eaf to generate .eaf files suitable
+    # for opening in ELAN.
+    #   diarization-to-eaf --input-dir diarization-results --output-dir eaf --media-dir audio --debug
+    # Use update_eafs.py to iterate through and hand tweak .eaf files
+    eaf_to_rttm.py --debug
+    generate_uem_for_audio_data.py --debug
 ```
 
 ## Contributing
