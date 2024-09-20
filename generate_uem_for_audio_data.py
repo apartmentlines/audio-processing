@@ -18,10 +18,12 @@ class UEMGenerator:
         self,
         data_dir: Path,
         uem_dir: Path,
+        total: bool = False,
         debug: bool = False,
     ):
         self.data_dir = data_dir
         self.uem_dir = uem_dir
+        self.total = total
         self.debug = debug
         self.setup_logging()
 
@@ -70,10 +72,29 @@ class UEMGenerator:
             if duration > 0:
                 self.generate_uem_file(audio_file, duration)
 
+    def calculate_total_duration(self) -> tuple[str, int]:
+        total_seconds = 0
+        total_count = 0
+        for uem_file in self.uem_dir.glob("*.uem"):
+            with uem_file.open("r") as f:
+                for line in f:
+                    _, _, start, end = line.strip().split()
+                    duration = float(end) - float(start)
+                    total_seconds += duration
+                    total_count += 1
+
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}", total_count
+
     def run(self):
-        logging.info("Starting UEM file generation")
-        self.process_audio_files()
-        logging.info("UEM file generation completed")
+        if self.total:
+            total_duration, total_count = self.calculate_total_duration()
+            logging.info(f"Total duration of {total_count} files: {total_duration}")
+        else:
+            logging.info("Starting UEM file generation")
+            self.process_audio_files()
+            logging.info("UEM file generation completed")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -92,6 +113,7 @@ def parse_arguments() -> argparse.Namespace:
         default=Path("uem"),
         help="Directory for storing UEM files (default: %(default)s).",
     )
+    parser.add_argument("--total", action="store_true", help="Calculate total duration of all UEM files.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser.parse_args()
 
@@ -102,6 +124,7 @@ def main():
         generator = UEMGenerator(
             data_dir=args.data_dir,
             uem_dir=args.uem_dir,
+            total=args.total,
             debug=args.debug,
         )
         generator.run()
