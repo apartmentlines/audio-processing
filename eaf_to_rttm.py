@@ -5,8 +5,16 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urlparse, unquote
-from typing import Dict, Optional, Iterator
+from typing import Dict, Optional, Iterator, List
+from dataclasses import dataclass
 
+
+@dataclass
+class Annotation:
+    file_id: str
+    start_time: float
+    duration: float
+    speaker_name: str
 
 class EAFtoRTTMConverter:
     """
@@ -79,16 +87,25 @@ class EAFtoRTTMConverter:
             time_slots = self.build_time_slots(root)
             file_id = self.get_file_id(root)
 
+            annotations = []
+
             for tier in root.findall("TIER"):
                 speaker_name = tier.get("TIER_ID")
                 logging.debug(f"Processing TIER_ID (speaker): {speaker_name}")
 
                 for annotation in tier.findall("ANNOTATION"):
-                    rttm_line = self.process_annotation(
+                    processed_annotation = self.process_annotation(
                         annotation, time_slots, file_id, speaker_name
                     )
-                    if rttm_line:
-                        yield rttm_line
+                    if processed_annotation:
+                        annotations.append(processed_annotation)
+
+            # Sort annotations by start time
+            annotations.sort(key=lambda x: x.start_time)
+
+            # Yield sorted RTTM lines
+            for ann in annotations:
+                yield f"SPEAKER {ann.file_id} 1 {ann.start_time:.3f} {ann.duration:.3f} <NA> <NA> {ann.speaker_name} <NA> <NA>"
 
         except ET.ParseError as e:
             logging.error(f"XML parsing error in file {eaf_file}: {e}")
@@ -145,15 +162,15 @@ class EAFtoRTTMConverter:
         time_slots: Dict[str, int],
         file_id: str,
         speaker_name: str,
-    ) -> Optional[str]:
+    ) -> Optional[Annotation]:
         """
-        Process a single annotation and return an RTTM line.
+        Process a single annotation and return an Annotation object.
 
         :param annotation: XML element representing an annotation.
         :param time_slots: Dictionary of time slots.
         :param file_id: File ID string.
         :param speaker_name: Speaker name string (derived from TIER_ID in the EAF file).
-        :return: RTTM line string or None if invalid.
+        :return: Annotation object or None if invalid.
         """
         alignable_annotation = annotation.find("ALIGNABLE_ANNOTATION")
         if alignable_annotation is None:
@@ -194,8 +211,8 @@ class EAFtoRTTMConverter:
         logging.debug(
             f"Annotation {annotation_id}: onset {onset_sec} s, duration {duration_sec} s, speaker {speaker_name}"
         )
-        # Channel ID is always set to "1" as per RTTM specification
-        return f"SPEAKER {file_id} 1 {onset_sec:.3f} {duration_sec:.3f} <NA> <NA> {speaker_name} <NA> <NA>"
+
+        return Annotation(file_id, onset_sec, duration_sec, speaker_name)
 
 
 def parse_arguments() -> argparse.Namespace:
