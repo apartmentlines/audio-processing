@@ -235,7 +235,7 @@ class DiarizationJobSubmitter:
                 logging.error(f"Audio file not found: {file_path}")
                 abort(404)
             logging.debug(f"Serving audio file: {file_path}")
-            return send_file(file_path.resolve(), mimetype="audio/wav")
+            return send_file(file_path.resolve(), mimetype="audio/wav", conditional=True)
 
         @self.app.route("/results/<int:recording_id>", methods=["POST"])
         def receive_results(recording_id):
