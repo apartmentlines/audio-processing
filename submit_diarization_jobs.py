@@ -13,6 +13,7 @@ import sqlite3
 import sys
 import time
 import threading
+import signal
 from os import environ
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
@@ -20,6 +21,7 @@ import requests
 from flask import Flask, request, send_file, jsonify, abort
 from queue import Queue
 from threading import Event
+from werkzeug.serving import make_server
 
 # Constants
 API_BASE_URL = "https://api.pyannote.ai/v1"
@@ -73,6 +75,12 @@ class DiarizationJobSubmitter:
         # Initialize job queue and event
         self.job_queue = Queue()
         self.all_jobs_submitted = Event()
+
+        # New attributes for server status
+        self.server = None
+        self.server_started = threading.Event()
+        self.server_status = None
+        self.setup_signal_handler()
 
     def make_api_request(self, url, method="GET", data=None):
         headers = {
@@ -276,10 +284,46 @@ class DiarizationJobSubmitter:
 
     def start_web_server(self):
         def run_app():
-            logging.info(f"Starting web server on port {self.endpoint_port}")
-            self.app.run(host="0.0.0.0", port=self.endpoint_port)
+            try:
+                logging.info(f"Starting web server on port {self.endpoint_port}")
+                self.server = make_server('0.0.0.0', self.endpoint_port, self.app)
+                self.server_status = True
+                self.server_started.set()
+                self.server.serve_forever()
+            except Exception as e:
+                logging.error(f"Failed to start web server: {e}")
+                self.server_status = False
+                self.server_started.set()
 
         threading.Thread(target=run_app, daemon=True).start()
+
+    def wait_for_server_start(self, timeout=10):
+        if self.server_started.wait(timeout):
+            if self.server_status:
+                logging.info("Web server started successfully")
+                return True
+            else:
+                logging.error("Web server failed to start")
+                return False
+        else:
+            logging.error("Timeout waiting for web server to start")
+            return False
+
+    def stop_web_server(self):
+        if self.server:
+            logging.info("Stopping web server...")
+            self.server.shutdown()
+            self.server.server_close()
+            logging.info("Web server stopped.")
+
+    def setup_signal_handler(self):
+        def signal_handler(signum, frame):
+            logging.info("Received interrupt signal. Stopping server and exiting...")
+            self.stop_web_server()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
     def process_recording(self, recording: CustomerRecording) -> dict:
         if self.should_skip_recording(recording):
@@ -387,22 +431,30 @@ class DiarizationJobSubmitter:
         start_time = time.time()
         logging.info("Starting diarization job submission script")
 
-        # Start the web server in another thread
-        self.start_web_server()
+        try:
+            # Start the web server in another thread
+            self.start_web_server()
 
-        self.conn = self.get_db_connection()
-        recordings = self.fetch_recordings()
-        self.process_recordings(recordings)
+            # Wait for the server to start and check its status
+            if not self.wait_for_server_start():
+                logging.error("Exiting due to web server startup failure")
+                sys.exit(1)  # Exit with error code
 
-        self.wait_for_completion()  # Wait for all jobs to complete
+            self.conn = self.get_db_connection()
+            recordings = self.fetch_recordings()
+            self.process_recordings(recordings)
 
-        if self.conn:
-            self.conn.close()
-            logging.debug("Database connection closed.")
+            self.wait_for_completion()  # Wait for all jobs to complete
 
-        end_time = time.time()
-        logging.info(f"Total execution time: {end_time - start_time:.2f} seconds")
-        logging.info("Diarization job submission script completed")
+            if self.conn:
+                self.conn.close()
+                logging.debug("Database connection closed.")
+
+            end_time = time.time()
+            logging.info(f"Total execution time: {end_time - start_time:.2f} seconds")
+            logging.info("Diarization job submission script completed")
+        finally:
+            self.stop_web_server()
 
 
 def parse_arguments() -> argparse.Namespace:
