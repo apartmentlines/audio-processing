@@ -333,6 +333,9 @@ class DiarizationJobSubmitter:
     def process_recording(self, recording: CustomerRecording) -> dict:
         if self.should_skip_recording(recording):
             return {"success": True, "skipped": True}
+        if self.sleep > 0:
+            logging.info(f"Sleeping for {self.sleep} seconds between job submissions")
+            time.sleep(self.sleep)
 
         file_url = f"https://{self.endpoint_hostname}/audio/{recording.id}"
         webhook_url = f"https://{self.endpoint_hostname}/results/{recording.id}"
@@ -392,9 +395,6 @@ class DiarizationJobSubmitter:
         retry_count = 0
 
         while index < len(recordings):
-            if self.sleep > 0:
-                logging.info(f"Sleeping for {self.sleep} seconds between job submissions")
-                time.sleep(self.sleep)
             if rate_limit_reset_time and time.time() < rate_limit_reset_time:
                 sleep_time = rate_limit_reset_time - time.time()
                 logging.info(
