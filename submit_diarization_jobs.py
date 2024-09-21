@@ -525,10 +525,10 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     args = parser.parse_args()
-    
+
     if args.sleep < 0:
         parser.error("--sleep must be greater than or equal to zero")
-    
+
     return args
 
 
