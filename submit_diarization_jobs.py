@@ -8,6 +8,7 @@ Also starts a local web server to serve audio files and receive webhook results.
 import argparse
 import logging
 import json
+import pprint
 from pathlib import Path
 import sqlite3
 import sys
@@ -245,6 +246,8 @@ class DiarizationJobSubmitter:
                 logging.error(
                     f"Invalid JSON data received for recording ID {recording_id} (filename: {recording.filename})"
                 )
+                if self.debug:
+                    pprint.pprint(data)
                 abort(400)
             diarization_results_path = self.get_diarization_results_path(recording)
             try:
