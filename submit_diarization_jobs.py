@@ -46,10 +46,11 @@ class DiarizationJobSubmitter:
         results_directory: Path,
         endpoint_hostname: str,
         endpoint_port: int = 4321,
-        debug: bool = False,
-        force: bool = False,
-        limit: Optional[int] = None,
+        sleep: float = 0,
         batch_size: int = 100,
+        limit: Optional[int] = None,
+        force: bool = False,
+        debug: bool = False,
     ):
         self.api_key = api_key or environ.get("PYANNOTE_API_KEY")
         if not self.api_key:
@@ -61,10 +62,11 @@ class DiarizationJobSubmitter:
         self.results_directory = results_directory
         self.endpoint_hostname = endpoint_hostname
         self.endpoint_port = endpoint_port
-        self.debug = debug
-        self.force = force
-        self.limit = limit
+        self.sleep = sleep
         self.batch_size = batch_size
+        self.limit = limit
+        self.force = force
+        self.debug = debug
         self.conn = None
         self.setup_logging()
         self.validate_endpoint_hostname()
@@ -390,6 +392,9 @@ class DiarizationJobSubmitter:
         retry_count = 0
 
         while index < len(recordings):
+            if self.sleep > 0:
+                logging.info(f"Sleeping for {self.sleep} seconds between job submissions")
+                time.sleep(self.sleep)
             if rate_limit_reset_time and time.time() < rate_limit_reset_time:
                 sleep_time = rate_limit_reset_time - time.time()
                 logging.info(
@@ -498,6 +503,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Port for the local web server (default: %(default)s).",
     )
     parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0,
+        help="Number of seconds to sleep between job submissions (default: %(default)s).",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=100,
@@ -513,7 +524,12 @@ def parse_arguments() -> argparse.Namespace:
         "--force", action="store_true", help="Force processing of existing files."
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    if args.sleep < 0:
+        parser.error("--sleep must be greater than or equal to zero")
+    
+    return args
 
 
 def main():
@@ -526,10 +542,11 @@ def main():
             results_directory=args.results_directory,
             endpoint_hostname=args.endpoint_hostname,
             endpoint_port=args.endpoint_port,
-            debug=args.debug,
-            force=args.force,
-            limit=args.limit,
+            sleep=args.sleep,
             batch_size=args.batch_size,
+            limit=args.limit,
+            force=args.force,
+            debug=args.debug,
         )
         submitter.run()
     except ValueError as e:
