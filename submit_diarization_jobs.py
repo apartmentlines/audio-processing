@@ -42,7 +42,7 @@ class DiarizationJobSubmitter:
         data_directory: Path,
         results_directory: Path,
         endpoint_hostname: str,
-        endpoint_port: int = 4000,
+        endpoint_port: int = 4321,
         debug: bool = False,
         force: bool = False,
         limit: Optional[int] = None,
@@ -439,7 +439,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--endpoint-port",
         type=int,
-        default=4000,
+        default=4321,
         help="Port for the local web server (default: %(default)s).",
     )
     parser.add_argument(
