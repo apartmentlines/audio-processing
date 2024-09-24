@@ -95,10 +95,40 @@ class AudioManager:
         else:
             print(f"No files {comparison} than {threshold} seconds found.")
 
+    def clean_split_files(self, output_dir: Path):
+        files_to_clean = ['database.yml', 'config.yml']
+        dirs_to_clean = ['lists']
+
+        for file in files_to_clean:
+            file_path = output_dir / file
+            if file_path.exists():
+                file_path.unlink()
+                logging.info(f"Cleaned up existing file: {file_path}")
+
+        for dir_name in dirs_to_clean:
+            dir_path = output_dir / dir_name
+            if dir_path.exists():
+                import shutil
+                shutil.rmtree(dir_path)
+                logging.info(f"Cleaned up existing directory: {dir_path}")
+
+    def generate_split_config(self, split_names):
+        return {
+            name: {
+                'uri': f'lists/{name}.txt',
+                'annotation': f'lists/{name}.rttm',
+                'annotated': f'lists/{name}.uem'
+            } for name in split_names
+        }
+
     def create_pyannote_split(self, split_ratios: str, output_dir: Path):
         logging.info(f"Creating pyannote.audio split with ratios {split_ratios}")
+        logging.info(f"Output directory: {output_dir.resolve()}")
+        logging.info(f"Audio directory: {self.audio_dir.resolve()}")
 
         try:
+            self.clean_split_files(output_dir)
+
             ratios = [float(r) for r in split_ratios.split(',')]
             if len(ratios) != 3 or sum(ratios) != 1.0:
                 raise ValueError("Split ratios must be three comma-separated numbers that sum to 1.0")
@@ -117,40 +147,53 @@ class AudioManager:
             train_end = int(total * ratios[0])
             dev_end = train_end + int(total * ratios[1])
 
-            train_set = all_recordings[:train_end]
-            development_set = all_recordings[train_end:dev_end]
-            test_set = all_recordings[dev_end:]
+            split_data = [
+                ('train', all_recordings[:train_end]),
+                ('development', all_recordings[train_end:dev_end]),
+                ('test', all_recordings[dev_end:])
+            ]
 
             output_dir.mkdir(parents=True, exist_ok=True)
+            lists_dir = output_dir / 'lists'
+            lists_dir.mkdir(exist_ok=True)
 
             # Create database.yml
-            database = {}
-            for rec in all_recordings:
-                basename = Path(rec[1]).stem
-                database[basename] = {
-                    'uri': f'audio/{rec[1]}',
-                    'annotation': f'rttm/{basename}.rttm',
-                    'annotated': f'uem/{basename}.uem'
+            database = {
+                'Databases': {
+                    'MyDatabase': [
+                        str(Path('audio') / '{uri}.wav')
+                    ]
                 }
+            }
             with open(output_dir / 'database.yml', 'w') as f:
-                yaml.dump({'Databases': {'MyDatabase': database}}, f)
+                yaml.dump(database, f, default_flow_style=False)
 
-            # Create split files
-            for name, dataset in [('train', train_set), ('development', development_set), ('test', test_set)]:
-                with open(output_dir / f'{name}.txt', 'w') as f:
+            # Create split files and concatenate RTTM and UEM files
+            for name, dataset in split_data:
+                with open(lists_dir / f'{name}.txt', 'w') as f, \
+                     open(lists_dir / f'{name}.rttm', 'w') as rttm_out, \
+                     open(lists_dir / f'{name}.uem', 'w') as uem_out:
                     for rec in dataset:
-                        f.write(f"{rec[1]}\n")
+                        basename = Path(rec[1]).stem
+                        f.write(f"{basename}\n")
+
+                        # Concatenate RTTM files
+                        rttm_file = self.rttm_dir / f"{basename}.rttm"
+                        if rttm_file.exists():
+                            rttm_out.write(rttm_file.read_text())
+
+                        # Concatenate UEM files
+                        uem_file = self.uem_dir / f"{basename}.uem"
+                        if uem_file.exists():
+                            uem_out.write(uem_file.read_text())
 
             # Create config.yml
+            split_names = [name for name, _ in split_data]
             config = {
                 'Protocols': {
                     'MyDatabase': {
                         'SpeakerDiarization': {
-                            'MyProtocol': {
-                                'train': {'uri': 'train.txt'},
-                                'development': {'uri': 'development.txt'},
-                                'test': {'uri': 'test.txt'}
-                            }
+                            'MyProtocol': self.generate_split_config(split_names)
                         }
                     }
                 }
@@ -158,7 +201,7 @@ class AudioManager:
             with open(output_dir / 'config.yml', 'w') as f:
                 yaml.dump(config, f)
 
-            logging.info(f"Split created: {len(train_set)} training, {len(development_set)} development, {len(test_set)} test samples")
+            logging.info(f"Split created: {', '.join(f'{len(dataset)} {name}' for name, dataset in split_data)} samples")
             logging.info(f"Configuration files written to {output_dir}")
 
         except (sqlite3.Error, ValueError) as e:
@@ -276,14 +319,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--split-ratios",
         type=str,
-        default="0.8,0.1,0.1",
+        default="0.6,0.2,0.2",
         help="Comma-separated ratios for train,development,test split (default: %(default)s).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("pyannote_data"),
-        help="Directory to store pyannote.audio configuration files (default: %(default)s).",
+        default=Path.cwd(),
+        help="Directory to store pyannote.audio configuration files (default: current working directory).",
     )
     parser.add_argument(
         "--debug",
