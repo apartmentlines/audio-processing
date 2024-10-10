@@ -30,7 +30,7 @@ def transcribe(input_file, whisper_model="large-v2", num_speakers=2):
         aligned_result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
         # Diarize
-        diarize_model = whisperx.DiarizationPipeline(model_name=DIARIZATIOIN_MODEL, use_auth_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"),
+        diarize_model = whisperx.DiarizationPipeline(model_name=DIARIZATIOIN_MODEL, use_auth_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"), device=device)
         diarization_segments = diarize_model(audio, num_speakers=num_speakers)
 
         # Assign speaker labels
