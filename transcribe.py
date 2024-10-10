@@ -1,4 +1,4 @@
-#/usr/bin/env python3
+#!/usr/bin/env python3
 
 import whisperx
 import torch
@@ -30,6 +30,9 @@ def transcribe(input_file, whisper_model="large-v2", language="en", min_speakers
     # Perform diarization
     diarization = diarization_pipeline(input_file, min_speakers=min_speakers, max_speakers=max_speakers)
 
+    with open("/app/audio.rttm", "w") as rttm:
+        diarization.write_rttm(rttm)
+
     # Assign speaker labels
     result = whisperx.assign_word_speakers(diarization, result)
 
@@ -43,7 +46,7 @@ def transcribe(input_file, whisper_model="large-v2", language="en", min_speakers
 
 # Example usage
 if __name__ == "__main__":
-    input_file = "path/to/your/audio/file.wav"
+    input_file = "audio/alt-office/2024-08-14T17:41:46_+19562523979.wav"
     whisper_model = "large-v2"
     language = "en"
     min_speakers = 2
