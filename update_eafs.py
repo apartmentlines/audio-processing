@@ -17,6 +17,8 @@ from typing import List, Optional
 import subprocess
 import os
 
+FILE_SAVED_IN_PREVIOUS_MINUTES = 1
+
 
 @dataclass
 class CustomerRecording:
@@ -118,11 +120,13 @@ class EAFUpdater:
             logging.error(f"Unsupported platform: {sys.platform}")
             sys.exit(1)
 
-    def mark_complete(self, recording: CustomerRecording, original_mtime: float):
+    def mark_complete(self, recording: CustomerRecording):
         eaf_path = self.get_eaf_path(recording)
-        current_mtime = eaf_path.stat().st_mtime
+        current_time = time.time()
+        file_mtime = eaf_path.stat().st_mtime
+        minutes_since_modified = (current_time - file_mtime) / 60
 
-        if current_mtime != original_mtime:
+        if minutes_since_modified <= FILE_SAVED_IN_PREVIOUS_MINUTES:
             try:
                 cursor = self.conn.cursor()
                 cursor.execute(
@@ -140,9 +144,9 @@ class EAFUpdater:
                 )
                 return False
         else:
-            logging.warning(f"EAF file {eaf_path} has not been modified.")
+            logging.warning(f"EAF file {eaf_path} has not been saved in the last {FILE_SAVED_IN_PREVIOUS_MINUTES} minute(s).")
             logging.warning(
-                "You must save your changes to the EAF file before marking it as complete."
+                "Please save your changes to the EAF file before marking it as complete."
             )
             return False
 
@@ -184,8 +188,6 @@ class EAFUpdater:
                 )
                 continue
 
-            original_mtime = eaf_path.stat().st_mtime
-
             while True:
                 confirm = input(
                     f"Open EAF file for recording ID {recording.id} (filename: {recording.filename})? (y/n/q): "
@@ -206,7 +208,7 @@ class EAFUpdater:
             while True:
                 action = input("Mark as complete (c) or quit (q)? ").lower()
                 if action == "c":
-                    if self.mark_complete(recording, original_mtime):
+                    if self.mark_complete(recording):
                         break
                 elif action == "q":
                     self.quit_process()
