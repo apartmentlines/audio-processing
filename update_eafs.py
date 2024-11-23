@@ -150,6 +150,27 @@ class EAFUpdater:
             )
             return False
 
+    def mark_skipped(self, recording: CustomerRecording):
+        try:
+            confirm = input(f"Are you sure you want to mark recording ID {recording.id} as skipped? (y/n): ").lower()
+            if confirm == 'y':
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "UPDATE customer_recordings SET eaf_complete = -1 WHERE id = ?",
+                    (recording.id,),
+                )
+                self.conn.commit()
+                logging.info(
+                    f"Marked recording ID {recording.id} (filename: {recording.filename}) as skipped."
+                )
+                return True
+            return False
+        except sqlite3.Error as e:
+            logging.error(
+                f"Failed to update database for recording ID {recording.id} (filename: {recording.filename}): {e}"
+            )
+            return False
+
     def create_archive(self):
         current_date = time.strftime("%Y-%m-%d")
         archive_name = f"eaf_update_archive_{current_date}.tar.gz"
@@ -206,14 +227,17 @@ class EAFUpdater:
                     print("Invalid input. Please enter 'y', 'n', or 'q'.")
 
             while True:
-                action = input("Mark as complete (c) or quit (q)? ").lower()
+                action = input("Mark as complete (c), skip (s), or quit (q)? ").lower()
                 if action == "c":
                     if self.mark_complete(recording):
+                        break
+                elif action == "s":
+                    if self.mark_skipped(recording):
                         break
                 elif action == "q":
                     self.quit_process()
                 else:
-                    print("Invalid input. Please enter 'c' or 'q'.")
+                    print("Invalid input. Please enter 'c', 's', or 'q'.")
 
         self.quit_process()
 
