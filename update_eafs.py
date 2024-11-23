@@ -16,8 +16,31 @@ from dataclasses import dataclass
 from typing import List, Optional
 import subprocess
 import os
+from functools import wraps
 
 FILE_SAVED_IN_PREVIOUS_MINUTES = 1
+
+
+class DatabaseError(Exception):
+    """Custom exception for database operation failures"""
+    pass
+
+
+def handle_db_error(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except sqlite3.Error as e:
+            logging.error(f"Database operation failed: {e}")
+            # Get self reference from first argument if it's a method
+            if args and hasattr(args[0], 'conn') and args[0].conn:
+                try:
+                    args[0].conn.close()
+                except sqlite3.Error as close_error:
+                    logging.error(f"Failed to close database connection: {close_error}")
+            raise DatabaseError(f"Database operation failed: {e}")
+    return wrapper
 
 
 @dataclass
@@ -56,15 +79,13 @@ class EAFUpdater:
         if self.debug:
             logging.debug(f"Debug mode enabled. Arguments: {self.__dict__}")
 
+    @handle_db_error
     def get_db_connection(self):
-        try:
-            self.conn = sqlite3.connect(self.db_name)
-            self.conn.row_factory = sqlite3.Row
-            logging.debug(f"Successfully connected to the database: {self.db_name}")
-        except sqlite3.Error as e:
-            logging.error(f"Failed to connect to the database: {e}")
-            sys.exit(1)
+        self.conn = sqlite3.connect(self.db_name)
+        self.conn.row_factory = sqlite3.Row
+        logging.debug(f"Successfully connected to the database: {self.db_name}")
 
+    @handle_db_error
     def fetch_recordings(self) -> List[CustomerRecording]:
         query = """
             SELECT id, master_id, filename, timestamp
@@ -75,38 +96,34 @@ class EAFUpdater:
         offset = 0
         recordings = []
 
-        try:
-            while True:
-                cursor = self.conn.cursor()
-                cursor.execute(query, (self.batch_size, offset))
-                batch = cursor.fetchall()
+        while True:
+            cursor = self.conn.cursor()
+            cursor.execute(query, (self.batch_size, offset))
+            batch = cursor.fetchall()
 
-                if not batch:
-                    break
+            if not batch:
+                break
 
-                recordings.extend(
-                    [
-                        CustomerRecording(
-                            id=row["id"],
-                            master_id=row["master_id"],
-                            filename=row["filename"],
-                            timestamp=row["timestamp"],
-                        )
-                        for row in batch
-                    ]
-                )
+            recordings.extend(
+                [
+                    CustomerRecording(
+                        id=row["id"],
+                        master_id=row["master_id"],
+                        filename=row["filename"],
+                        timestamp=row["timestamp"],
+                    )
+                    for row in batch
+                ]
+            )
 
-                offset += self.batch_size
+            offset += self.batch_size
 
-                if self.limit and len(recordings) >= self.limit:
-                    recordings = recordings[: self.limit]
-                    break
+            if self.limit and len(recordings) >= self.limit:
+                recordings = recordings[: self.limit]
+                break
 
-            logging.info(f"Fetched {len(recordings)} recordings from the database.")
-            return recordings
-        except sqlite3.Error as e:
-            logging.error(f"Failed to fetch recordings: {e}")
-            sys.exit(1)
+        logging.info(f"Fetched {len(recordings)} recordings from the database.")
+        return recordings
 
     def get_eaf_path(self, recording: CustomerRecording) -> Path:
         return self.eaf_directory / f"{Path(recording.filename).stem}.eaf"
@@ -120,6 +137,7 @@ class EAFUpdater:
             logging.error(f"Unsupported platform: {sys.platform}")
             sys.exit(1)
 
+    @handle_db_error
     def mark_complete(self, recording: CustomerRecording):
         eaf_path = self.get_eaf_path(recording)
         current_time = time.time()
@@ -127,22 +145,16 @@ class EAFUpdater:
         minutes_since_modified = (current_time - file_mtime) / 60
 
         if minutes_since_modified <= FILE_SAVED_IN_PREVIOUS_MINUTES:
-            try:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "UPDATE customer_recordings SET eaf_complete = 1 WHERE id = ?",
-                    (recording.id,),
-                )
-                self.conn.commit()
-                logging.info(
-                    f"Marked recording ID {recording.id} (filename: {recording.filename}) as complete."
-                )
-                return True
-            except sqlite3.Error as e:
-                logging.error(
-                    f"Failed to update database for recording ID {recording.id} (filename: {recording.filename}): {e}"
-                )
-                return False
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE customer_recordings SET eaf_complete = 1 WHERE id = ?",
+                (recording.id,),
+            )
+            self.conn.commit()
+            logging.info(
+                f"Marked recording ID {recording.id} (filename: {recording.filename}) as complete."
+            )
+            return True
         else:
             logging.warning(f"EAF file {eaf_path} has not been saved in the last {FILE_SAVED_IN_PREVIOUS_MINUTES} minute(s).")
             logging.warning(
@@ -150,26 +162,21 @@ class EAFUpdater:
             )
             return False
 
+    @handle_db_error
     def mark_skipped(self, recording: CustomerRecording):
-        try:
-            confirm = input(f"Are you sure you want to mark recording ID {recording.id} as skipped? (y/n): ").lower()
-            if confirm == 'y':
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "UPDATE customer_recordings SET eaf_complete = -1 WHERE id = ?",
-                    (recording.id,),
-                )
-                self.conn.commit()
-                logging.info(
-                    f"Marked recording ID {recording.id} (filename: {recording.filename}) as skipped."
-                )
-                return True
-            return False
-        except sqlite3.Error as e:
-            logging.error(
-                f"Failed to update database for recording ID {recording.id} (filename: {recording.filename}): {e}"
+        confirm = input(f"Are you sure you want to mark recording ID {recording.id} as skipped? (y/n): ").lower()
+        if confirm == 'y':
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE customer_recordings SET eaf_complete = -1 WHERE id = ?",
+                (recording.id,),
             )
-            return False
+            self.conn.commit()
+            logging.info(
+                f"Marked recording ID {recording.id} (filename: {recording.filename}) as skipped."
+            )
+            return True
+        return False
 
     def create_archive(self):
         current_date = time.strftime("%Y-%m-%d")
@@ -197,8 +204,11 @@ class EAFUpdater:
     def run(self):
         logging.info("Starting EAF update script")
 
-        self.get_db_connection()
-        recordings = self.fetch_recordings()
+        try:
+            self.get_db_connection()
+            recordings = self.fetch_recordings()
+        except DatabaseError:
+            self.quit_process()
 
         for recording in recordings:
             eaf_path = self.get_eaf_path(recording)
