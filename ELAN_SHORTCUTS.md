@@ -7,6 +7,7 @@ Provides essenetial keyboard shortcuts to work with annotations in ELAN.
 ### Player shortcuts
 
  * Play/pause: Ctrl + Space
+ * Play current selection: Ctrl + 0
  * Scroll forward: Ctrl + Page Down
  * Scroll backward: Ctrl + Page Up
  * Go forward 1 second: Shift + Right
@@ -48,6 +49,7 @@ Provides essenetial keyboard shortcuts to work with annotations in ELAN.
 ### Player shortcuts
 
  * Play/pause: Ctrl + Space
+ * Play current selection: Ctrl + 0
  * Scroll forward: Cmd + Page Down
  * Scroll backward: Cmd + Page Up
  * Go forward 1 second: Shift + Right
