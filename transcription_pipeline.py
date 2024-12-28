@@ -102,6 +102,7 @@ class TranscriptionPipeline:
                 file_data = self.download_queue.get()
                 if file_data is None:
                     self.download_queue.task_done()
+                    self.downloaded_queue.put(None)
                     break
                 logging.debug(f"Downloading {file_data.name} from {file_data.url}")
                 time.sleep(random.uniform(1, 3))
@@ -112,45 +113,65 @@ class TranscriptionPipeline:
                     logging.debug("Downloaded queue is full - downloader will block")
 
                 self.download_queue.task_done()
-            except queue.Empty:
-                continue
             except Exception as e:
                 logging.error(f"Error downloading {file_data.name}: {e}")
                 self.download_queue.task_done()
         logging.info("Exiting download thread.")
+
+    def _cleanup_active_transcriptions(self) -> None:
+        """Clean up completed transcription threads."""
+        self.active_transcriptions = [t for t in self.active_transcriptions if t.is_alive()]
+
+    def _process_downloaded_file(self, file_data: FileData) -> None:
+        """Process a single downloaded file by starting a transcription thread.
+
+        :param file_data: FileData object to process
+        """
+        self.transcription_sema.acquire()
+        logging.debug(f"Acquired transcription slot for {file_data.name}.")
+
+        t = threading.Thread(
+            target=self.transcribe_file,
+            args=(file_data,),
+            name=f"Transcribe-{file_data.id}",
+        )
+        t.start()
+        self.active_transcriptions.append(t)
+        self.downloaded_queue.task_done()
+
+    def _process_downloaded_files(self) -> None:
+        """Phase 1: Process all downloaded files from the queue."""
+        while True:
+            if self.shutdown_event.is_set():
+                logging.info("Stopping processing of downloaded files.")
+                break
+            try:
+                file_data = self.downloaded_queue.get()
+                if file_data is None:
+                    self.downloaded_queue.task_done()
+                    break
+
+                self._process_downloaded_file(file_data)
+            except Exception as e:
+                logging.error(f"Error processing file: {e}")
+                self.downloaded_queue.task_done()
+
+            self._cleanup_active_transcriptions()
+
+    def _wait_for_active_transcriptions(self) -> None:
+        """Phase 2: Wait for all active transcription threads to complete."""
+        while self.active_transcriptions:
+            self._cleanup_active_transcriptions()
+            if self.active_transcriptions:
+                time.sleep(0.1)
 
     def transcribe_consumer(self) -> None:
         """
         A single consumer thread that pulls from downloaded_queue
         and spawns transcription threads, respecting the concurrency limit.
         """
-        while not self.shutdown_event.is_set() or not self.downloaded_queue.empty() or self.active_transcriptions:
-            try:
-                file_data = self.downloaded_queue.get(timeout=0.1)
-                if file_data is None:
-                    self.downloaded_queue.task_done()
-                    break
-                self.transcription_sema.acquire()
-                logging.debug(f"Acquired transcription slot for {file_data.name}.")
-
-                t = threading.Thread(
-                    target=self.transcribe_file,
-                    args=(file_data,),
-                    name=f"Transcribe-{file_data.id}",
-                )
-                t.start()
-                self.active_transcriptions.append(t)
-
-                self.downloaded_queue.task_done()
-            except queue.Empty:
-                if self.shutdown_event.is_set() and self.downloaded_queue.empty() and not self.active_transcriptions:
-                    break
-                continue
-            except Exception as e:
-                logging.error(f"Error processing {file_data.name}: {e}")
-                self.downloaded_queue.task_done()
-
-            self.active_transcriptions = [t for t in self.active_transcriptions if t.is_alive()]
+        self._process_downloaded_files()
+        self._wait_for_active_transcriptions()
         logging.info("Exiting consumer thread.")
 
     def transcribe_file(self, file_data: FileData) -> None:
@@ -184,7 +205,7 @@ class TranscriptionPipeline:
             logging.error(f"Error loading JSON file: {e}")
             raise
 
-    def run(self, file_path: Path) -> None:
+    def run(self, file_path: Path) -> int:
         """Run the transcription pipeline with the given file list.
 
         :param file_path: Path to JSON file containing files to process
@@ -206,27 +227,22 @@ class TranscriptionPipeline:
             self.download_queue.put(None)
 
             self.download_queue.join()
-            self.shutdown_event.set()
             self.downloaded_queue.join()
-
-            while self.active_transcriptions:
-                self.active_transcriptions = [t for t in self.active_transcriptions if t.is_alive()]
-                if self.active_transcriptions:
-                    time.sleep(0.1)
-
-            self.downloaded_queue.put(None)
 
             download_thread.join()
             consumer_thread.join()
 
             logging.info("Pipeline completed successfully.")
+            return 0
         except KeyboardInterrupt:
             logging.info("Received interrupt signal. Shutting down gracefully...")
             self.shutdown_event.set()
-            exit(0)
+            download_thread.join()
+            consumer_thread.join()
+            return 130
         except Exception as e:
             logging.error(f"Pipeline failed: {e}")
-            exit(1)
+            return 1
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments.
@@ -259,7 +275,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-def main() -> None:
+def main() -> int:
     """Main function to run the transcription pipeline."""
     args = parse_arguments()
 
@@ -269,7 +285,7 @@ def main() -> None:
         debug=args.debug,
     )
 
-    pipeline.run(args.files)
+    return pipeline.run(args.files)
 
 if __name__ == "__main__":
-    main()
+    exit(main())
