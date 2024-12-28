@@ -77,22 +77,23 @@ class ProcessingPipeline:
     def download_files(self) -> None:
         """Worker that pulls from download_queue, simulates a download,
         and pushes into downloaded_queue."""
-        while not self.shutdown_event.is_set():
-            try:
-                file_data = self.download_queue.get()
-                if file_data is None:
-                    self.downloaded_queue.put(None)
-                    break
-                logging.debug(f"Downloading {file_data.name} from {file_data.url}")
-                time.sleep(random.uniform(1, 3))  # Simulate download
-
-                self.downloaded_queue.put(file_data)
-                logging.info(f"Downloaded {file_data.name} from {file_data.url}")
-                if self.downloaded_queue.full():
-                    logging.debug("Downloaded queue is full - downloader will block")
-            except Exception as e:
-                logging.error(f"Error downloading {file_data.name}: {e}")
-        logging.info("Exiting download thread.")
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    file_data = self.download_queue.get()
+                    if file_data is None:
+                        break
+                    logging.debug(f"Downloading {file_data.name} from {file_data.url}")
+                    time.sleep(random.uniform(1, 3))  # Simulate download
+                    self.downloaded_queue.put(file_data)
+                    logging.info(f"Downloaded {file_data.name} from {file_data.url}")
+                    if self.downloaded_queue.full():
+                        logging.debug("Downloaded queue is full - downloader will block")
+                except Exception as e:
+                    logging.error(f"Error downloading {file_data.name}: {e}")
+        finally:
+            self.downloaded_queue.put(None)
+            logging.info("Exiting download thread.")
 
     def processing_consumer(self) -> None:
         """Consumer that pulls from downloaded_queue and submits processing tasks."""
