@@ -33,12 +33,10 @@ class FileData:
 # Continuously pulls a filename from download_queue.
 # “Downloads” it (simulated by time.sleep(1)).
 # Pushes it into downloaded_queue (blocking if that queue is full).
-# Calls task_done() on download_queue.
 # transcribe_consumer:
 # Continuously pulls a filename from downloaded_queue.
 # Waits on a transcription_sema.acquire() to ensure at most 3 transcriptions run at once.
 # Spawns a new thread (transcribe_file) to transcribe that file.
-# Calls task_done() on downloaded_queue.
 # transcribe_file:
 # “Transcribes” the file (simulated by time.sleep(2)).
 # Calls transcription_sema.release() in a finally block to free the transcription slot.
@@ -101,7 +99,6 @@ class TranscriptionPipeline:
             try:
                 file_data = self.download_queue.get()
                 if file_data is None:
-                    self.download_queue.task_done()
                     self.downloaded_queue.put(None)
                     break
                 logging.debug(f"Downloading {file_data.name} from {file_data.url}")
@@ -111,11 +108,8 @@ class TranscriptionPipeline:
                 logging.info(f"Downloaded {file_data.name} from {file_data.url}")
                 if self.downloaded_queue.full():
                     logging.debug("Downloaded queue is full - downloader will block")
-
-                self.download_queue.task_done()
             except Exception as e:
                 logging.error(f"Error downloading {file_data.name}: {e}")
-                self.download_queue.task_done()
         logging.info("Exiting download thread.")
 
     def _cleanup_active_transcriptions(self) -> None:
@@ -137,7 +131,6 @@ class TranscriptionPipeline:
         )
         t.start()
         self.active_transcriptions.append(t)
-        self.downloaded_queue.task_done()
 
     def _process_downloaded_files(self) -> None:
         """Phase 1: Process all downloaded files from the queue."""
@@ -148,13 +141,11 @@ class TranscriptionPipeline:
             try:
                 file_data = self.downloaded_queue.get()
                 if file_data is None:
-                    self.downloaded_queue.task_done()
                     break
 
                 self._process_downloaded_file(file_data)
             except Exception as e:
                 logging.error(f"Error processing file: {e}")
-                self.downloaded_queue.task_done()
 
             self._cleanup_active_transcriptions()
 
@@ -225,9 +216,6 @@ class TranscriptionPipeline:
 
             self.populate_download_queue(file_list)
             self.download_queue.put(None)
-
-            self.download_queue.join()
-            self.downloaded_queue.join()
 
             download_thread.join()
             consumer_thread.join()
