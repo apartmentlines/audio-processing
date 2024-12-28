@@ -1,12 +1,8 @@
 #!/usr/bin/env python
 
 """
-A multi-threaded transcription pipeline that simulates downloading and transcribing files.
+A multi-threaded processing pipeline that downloads and processes files.
 """
-
-# Default configuration values
-DEFAULT_TRANSCRIPTION_LIMIT = 3
-DEFAULT_DOWNLOAD_QUEUE_SIZE = 10
 
 import argparse
 import json
@@ -15,9 +11,16 @@ import queue
 import random
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
+
+
+# Default configuration values
+DEFAULT_PROCESSING_LIMIT = 3
+DEFAULT_DOWNLOAD_QUEUE_SIZE = 10
+
 
 @dataclass
 class FileData:
@@ -26,54 +29,33 @@ class FileData:
     name: str
     url: str
 
-# Walk-through
-#
-# populate_download_queue: Loops through file_list and pushes each file name into download_queue.
-# download_files:
-# Continuously pulls a filename from download_queue.
-# “Downloads” it (simulated by time.sleep(1)).
-# Pushes it into downloaded_queue (blocking if that queue is full).
-# transcribe_consumer:
-# Continuously pulls a filename from downloaded_queue.
-# Waits on a transcription_sema.acquire() to ensure at most 3 transcriptions run at once.
-# Spawns a new thread (transcribe_file) to transcribe that file.
-# transcribe_file:
-# “Transcribes” the file (simulated by time.sleep(2)).
-# Calls transcription_sema.release() in a finally block to free the transcription slot.
 
-# Why This Works
-
-# Unlimited Download Queue: The only limit on how many items can be queued for download is how many files you have.
-# Downloaded Queue = 10: Downloading blocks if there are 10 items waiting to be transcribed. This prevents a large backlog from building up.
-# Semaphore (3): Only 3 transcription threads can be active at once.
-# Not Strictly FIFO: Because each transcription is its own thread, the order in which they finish can be arbitrary. You aren’t forced into a “pull from queue, transcribe in that order” model.
-# Pulls Only When Slots Are Available: If all 3 transcription slots are busy, the consumer thread blocks on semaphore.acquire(), so it won’t read the next file from downloaded_queue (or at least it won’t fully process it) until a slot is freed. That, in turn, can block the downloader if the downloaded_queue gets full, giving you a natural pipeline flow.
-
-class TranscriptionPipeline:
-    """Main class for managing the transcription pipeline."""
+class ProcessingPipeline:
+    """Main class for managing the processing pipeline."""
 
     def __init__(
         self,
-        transcription_limit: int = DEFAULT_TRANSCRIPTION_LIMIT,
+        processing_limit: int = DEFAULT_PROCESSING_LIMIT,
         download_queue_size: int = DEFAULT_DOWNLOAD_QUEUE_SIZE,
         debug: bool = False,
     ):
-        self.active_transcriptions = []
         """
-        Initialize the transcription pipeline.
+        Initialize the processing pipeline.
 
-        :param transcription_limit: Maximum concurrent transcriptions
+        :param processing_limit: Maximum concurrent processing threads
         :param download_queue_size: Maximum size of downloaded files queue
         :param debug: Enable debug logging
         """
-        self.transcription_limit = transcription_limit
+        self.processing_limit = processing_limit
         self.download_queue_size = download_queue_size
         self.debug = debug
 
-        self.transcription_sema = threading.Semaphore(self.transcription_limit)
+        self.executor = None
         self.download_queue = queue.Queue()
         self.downloaded_queue = queue.Queue(maxsize=self.download_queue_size)
         self.shutdown_event = threading.Event()
+
+        self.post_processing_queue = queue.Queue()
 
         # Configure logging
         log_level = logging.DEBUG if debug else logging.INFO
@@ -102,7 +84,7 @@ class TranscriptionPipeline:
                     self.downloaded_queue.put(None)
                     break
                 logging.debug(f"Downloading {file_data.name} from {file_data.url}")
-                time.sleep(random.uniform(1, 3))
+                time.sleep(random.uniform(1, 3))  # Simulate download
 
                 self.downloaded_queue.put(file_data)
                 logging.info(f"Downloaded {file_data.name} from {file_data.url}")
@@ -112,132 +94,145 @@ class TranscriptionPipeline:
                 logging.error(f"Error downloading {file_data.name}: {e}")
         logging.info("Exiting download thread.")
 
-    def _cleanup_active_transcriptions(self) -> None:
-        """Clean up completed transcription threads."""
-        self.active_transcriptions = [t for t in self.active_transcriptions if t.is_alive()]
-
-    def _process_downloaded_file(self, file_data: FileData) -> None:
-        """Process a single downloaded file by starting a transcription thread.
-
-        :param file_data: FileData object to process
-        """
-        self.transcription_sema.acquire()
-        logging.debug(f"Acquired transcription slot for {file_data.name}.")
-
-        t = threading.Thread(
-            target=self.transcribe_file,
-            args=(file_data,),
-            name=f"Transcribe-{file_data.id}",
-        )
-        t.start()
-        self.active_transcriptions.append(t)
-
-    def _process_downloaded_files(self) -> None:
-        """Phase 1: Process all downloaded files from the queue."""
-        while True:
-            if self.shutdown_event.is_set():
-                logging.info("Stopping processing of downloaded files.")
-                break
+    def processing_consumer(self) -> None:
+        """Consumer that pulls from downloaded_queue and submits processing tasks."""
+        while not self.shutdown_event.is_set():
             try:
                 file_data = self.downloaded_queue.get()
                 if file_data is None:
+                    logging.info("All files submitted for processing.")
                     break
-
-                self._process_downloaded_file(file_data)
+                self.executor.submit(self.process_file, file_data)
+                logging.debug(f"Submitted processing task for {file_data.name}")
             except Exception as e:
-                logging.error(f"Error processing file: {e}")
+                logging.error(f"Error processing downloaded file: {e}")
 
-            self._cleanup_active_transcriptions()
+        logging.info("Exiting processing thread.")
 
-    def _wait_for_active_transcriptions(self) -> None:
-        """Phase 2: Wait for all active transcription threads to complete."""
-        while self.active_transcriptions:
-            self._cleanup_active_transcriptions()
-            if self.active_transcriptions:
-                time.sleep(0.1)
-
-    def transcribe_consumer(self) -> None:
-        """
-        A single consumer thread that pulls from downloaded_queue
-        and spawns transcription threads, respecting the concurrency limit.
-        """
-        self._process_downloaded_files()
-        self._wait_for_active_transcriptions()
-        logging.info("Exiting consumer thread.")
-
-    def transcribe_file(self, file_data: FileData) -> None:
-        """Transcription function, run in its own thread.
+    def process_file(self, file_data: FileData) -> None:
+        """Processing function, executed by the ThreadPoolExecutor.
 
         :param file_data: FileData object containing file information
         """
         try:
-            logging.debug(f"Starting transcription for {file_data.name}")
-            time.sleep(random.uniform(5, 10))
-            logging.info(f"Finished transcription for {file_data.name}")
+            if self.shutdown_event.is_set():
+                logging.debug(f"Shutdown event set. Skipping processing for {file_data.name}")
+                return
+            logging.debug(f"Starting processing for {file_data.name}")
+            time.sleep(random.uniform(5, 10))  # Simulate processing
+            logging.info(f"Finished processing for {file_data.name}")
+
+            # Simulate processing result
+            processing_result = f"Processed file {file_data.name}"
+
+            # Enqueue the result for post-processing
+            self.post_processing_queue.put(processing_result)
+            logging.debug(f"Enqueued processing result for {file_data.name} to post-processing queue")
         except Exception as e:
-            logging.error(f"Error transcribing {file_data.name}: {e}")
-        finally:
-            self.transcription_sema.release()
-            logging.debug(f"Released transcription slot for {file_data.name}")
+            logging.error(f"Error processing {file_data.name}: {e}")
+
+    def post_processor(self) -> None:
+        """Process the processing results from the post-processing queue."""
+        while not self.shutdown_event.is_set() or not self.post_processing_queue.empty():
+            try:
+                result = self.post_processing_queue.get(timeout=1)
+                logging.debug(f"Starting post-processing for result: {result}")
+                time.sleep(random.uniform(2, 4))  # Simulate post-processing
+                logging.info(f"Finished post-processing for result: {result}")
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logging.error(f"Error in post-processing: {e}")
+        logging.info("Exiting post-processing thread.")
 
     def load_files(self, file_path: Path) -> List[FileData]:
         """Load and parse the JSON file containing files to process.
 
         :param file_path: Path to JSON file
         :return: List of FileData objects
-        :raises: Exception if file cannot be loaded or parsed
+        :raises Exception: If file cannot be loaded or parsed
         """
         logging.info(f"Loading files from {file_path}")
         try:
             with open(file_path) as f:
                 file_data = json.load(f)
-                return [FileData(id=item['id'], name=item['name'], url=item['url']) for item in file_data]
+                return [
+                    FileData(id=item["id"], name=item["name"], url=item["url"])
+                    for item in file_data
+                ]
         except Exception as e:
             logging.error(f"Error loading JSON file: {e}")
             raise
 
     def run(self, file_path: Path) -> int:
-        """Run the transcription pipeline with the given file list.
+        """Run the processing pipeline with the given file list.
 
         :param file_path: Path to JSON file containing files to process
+        :return: Exit code (0 for success, non-zero for failure)
         """
+        logging.info("Starting processing pipeline...")
+
         file_list = self.load_files(file_path)
-        logging.info("Starting transcription pipeline...")
-        try:
-            download_thread = threading.Thread(
-                target=self.download_files, daemon=True, name="Downloader"
-            )
-            consumer_thread = threading.Thread(
-                target=self.transcribe_consumer, daemon=True, name="Consumer"
-            )
 
+        post_processor_thread = threading.Thread(
+            target=self.post_processor,
+            name="PostProcessor",
+            daemon=True,
+        )
+        download_thread = threading.Thread(
+            target=self.download_files,
+            daemon=True,
+            name="Downloader",
+        )
+        processing_thread = threading.Thread(
+            target=self.processing_consumer,
+            daemon=True,
+            name="Processor",
+        )
+
+        with ThreadPoolExecutor(max_workers=self.processing_limit) as executor:
+            self.executor = executor
+
+            post_processor_thread.start()
             download_thread.start()
-            consumer_thread.start()
+            processing_thread.start()
 
-            self.populate_download_queue(file_list)
-            self.download_queue.put(None)
+            try:
 
-            download_thread.join()
-            consumer_thread.join()
+                self.populate_download_queue(file_list)
+                self.download_queue.put(None)  # Signal that no more files will be added
 
-            logging.info("Pipeline completed successfully.")
-            return 0
-        except KeyboardInterrupt:
-            logging.info("Received interrupt signal. Shutting down gracefully...")
-            self.shutdown_event.set()
-            download_thread.join()
-            consumer_thread.join()
-            return 130
-        except Exception as e:
-            logging.error(f"Pipeline failed: {e}")
-            return 1
+                download_thread.join()
+                processing_thread.join()
+            except KeyboardInterrupt:
+                logging.info("Received interrupt signal. Shutting down gracefully...")
+                self.shutdown_event.set()
+
+                download_thread.join()
+                processing_thread.join()
+                post_processor_thread.join()
+
+                return 130
+            except Exception as e:
+                logging.error(f"Pipeline failed: {e}")
+                return 1
+
+        # Signal the post_processor to shutdown
+        self.shutdown_event.set()
+        logging.debug("Signaled shutdown event.")
+
+        post_processor_thread.join()
+
+        logging.info("Pipeline completed successfully.")
+        return 0
+
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments.
 
     :return: Parsed arguments
     """
-    parser = argparse.ArgumentParser(description="Run the transcription pipeline.")
+    parser = argparse.ArgumentParser(description="Run the processing pipeline.")
     parser.add_argument(
         "--files",
         type=Path,
@@ -245,10 +240,10 @@ def parse_arguments() -> argparse.Namespace:
         help="Path to JSON file containing list of files to process",
     )
     parser.add_argument(
-        "--transcription-limit",
+        "--processing-limit",
         type=int,
-        default=DEFAULT_TRANSCRIPTION_LIMIT,
-        help="Maximum concurrent transcriptions, default %(default)s",
+        default=DEFAULT_PROCESSING_LIMIT,
+        help="Maximum concurrent processing threads, default %(default)s",
     )
     parser.add_argument(
         "--download-queue-size",
@@ -263,17 +258,22 @@ def parse_arguments() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def main() -> int:
-    """Main function to run the transcription pipeline."""
+    """Main function to run the processing pipeline.
+
+    :return: Exit code (0 for success, non-zero for failure)
+    """
     args = parse_arguments()
 
-    pipeline = TranscriptionPipeline(
-        transcription_limit=args.transcription_limit,
+    pipeline = ProcessingPipeline(
+        processing_limit=args.processing_limit,
         download_queue_size=args.download_queue_size,
         debug=args.debug,
     )
 
     return pipeline.run(args.files)
 
+
 if __name__ == "__main__":
-    exit(main())
+     exit(main())
