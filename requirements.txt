@@ -5,3 +5,4 @@ pyannote.audio[training]
 torch[training]
 torchaudio[training]
 pytorch-lightning[training]
+tenacity
