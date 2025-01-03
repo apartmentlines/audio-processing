@@ -4,14 +4,15 @@ import whisperx
 from whisperx.utils import get_writer
 import torch
 import json
+import sys
 import os
 
 
-DIARIZATIOIN_MODEL = "Revai/reverb-diarization-v2"
-# DIARIZATIOIN_MODEL = "pyannote/speaker-diarization-3.1"
+# DIARIZATIOIN_MODEL = "Revai/reverb-diarization-v2"
+DIARIZATIOIN_MODEL = "pyannote/speaker-diarization-3.1"
 OUTPUT_DIR = "output"
 
-def transcribe(input_file, whisper_model="large-v2", num_speakers=2):
+def transcribe(input_file, whisper_model="large-v2", num_speakers=2, diarize=False):
 
     try:
         # Set up device
@@ -28,18 +29,19 @@ def transcribe(input_file, whisper_model="large-v2", num_speakers=2):
         # Load alignment model and align
         model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
         aligned_result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+        aligned_result["language"] = result["language"]
 
         # Diarize
-        diarize_model = whisperx.DiarizationPipeline(model_name=DIARIZATIOIN_MODEL, use_auth_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"), device=device)
-        diarization_segments = diarize_model(audio, num_speakers=num_speakers)
-
-        # Assign speaker labels
-        diarize_result = whisperx.assign_word_speakers(diarization_segments, aligned_result)
-        diarize_result["language"] = result["language"]
+        if diarize:
+            diarize_model = whisperx.DiarizationPipeline(model_name=DIARIZATIOIN_MODEL, use_auth_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN"), device=device)
+            diarization_segments = diarize_model(audio, num_speakers=num_speakers)
+            # Assign speaker labels
+            diarize_result = whisperx.assign_word_speakers(diarization_segments, aligned_result)
+            diarize_result["language"] = result["language"]
 
         srt_writer = get_writer("srt", OUTPUT_DIR)
         srt_writer(
-            diarize_result,
+            diarize and diarize_result or aligned_result,
             input_file,
             {"max_line_width": None, "max_line_count": None, "highlight_words": False}
         )
@@ -56,8 +58,13 @@ def transcribe(input_file, whisper_model="large-v2", num_speakers=2):
 
 # Example usage
 if __name__ == "__main__":
-    input_file = "audio/alt-office/2024-08-14T17:41:46_+19562523979.wav"
+    # input_file is 1st argument passed to script
+    input_file = sys.argv[1]
+    try:
+        diarize = bool(sys.argv[2])
+    except IndexError:
+        diarize = False
     whisper_model = "large-v2"
     num_speakers = 2
 
-    result = transcribe(input_file, whisper_model, num_speakers)
+    result = transcribe(input_file, whisper_model, num_speakers, diarize)
